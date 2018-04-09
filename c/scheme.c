@@ -819,6 +819,7 @@ static void handle_visit_revisit(tc, p) ptr tc; ptr p; {
 
 static void load(tc, n, base) ptr tc; iptr n; IBOOL base; {
   ptr x; iptr i;
+  ptr load_binary = Sfalse;
 
   if (base) {
     S_G.error_invoke_code_object = S_boot_read(bd[n].file, bd[n].path);
@@ -836,6 +837,11 @@ static void load(tc, n, base) ptr tc; iptr n; IBOOL base; {
     if (!Srecordp(S_G.base_rtd)) {
       S_abnormal_exit();
     }
+  } else {
+    ptr make_load_binary = SYMVAL(Sstring_to_symbol("$make-load-binary"));
+    if (Sprocedurep(make_load_binary)) {
+      load_binary = Scall3(make_load_binary, Sstring(bd[n].path), Sstring_to_symbol("load"), Sfalse);
+    }
   }
 
   i = 0;
@@ -849,6 +855,10 @@ static void load(tc, n, base) ptr tc; iptr n; IBOOL base; {
     if (Sprocedurep(x)) {
       S_initframe(tc, 0);
       x = boot_call(tc, x, 0);
+    } else if (Sprocedurep(load_binary)) {
+      S_initframe(tc, 1);
+      S_put_arg(tc, 1, x);
+      x = boot_call(tc, load_binary, 1);
     } else if (Svectorp(x)) {
       iptr j, n;
       n = Svector_length(x);
