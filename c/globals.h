@@ -73,6 +73,8 @@ EXTERN struct {
     ptr heap_reserve_ratio_id;
     IBOOL retain_static_relocation;
     IBOOL enable_object_counts;
+    ptr make_load_binary_symbol;
+    ptr load_binary;
 
   /* foreign.c */
     ptr foreign_static;

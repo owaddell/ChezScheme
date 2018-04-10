@@ -126,6 +126,11 @@ static void main_init() {
     S_protect(&S_G.heap_reserve_ratio_id);
     S_G.heap_reserve_ratio_id = S_intern((const unsigned char *)"$heap-reserve-ratio");
     SETSYMVAL(S_G.heap_reserve_ratio_id, Sflonum(default_heap_reserve_ratio));
+
+    S_protect(&S_G.make_load_binary_symbol);
+    S_G.make_load_binary_symbol = S_intern((const unsigned char *)"$make-load-binary");
+    S_protect(&S_G.load_binary);
+    S_G.load_binary = Sfalse;
 }
 
 static ptr fixtest = FIX(-1);
@@ -817,9 +822,17 @@ static void handle_visit_revisit(tc, p) ptr tc; ptr p; {
   }
 }
 
+static int set_load_binary(iptr n) {
+  ptr make_load_binary = SYMVAL(S_G.make_load_binary_symbol);
+  if (Sprocedurep(make_load_binary)) {
+    S_G.load_binary = Scall3(make_load_binary, Sstring(bd[n].path), Sstring_to_symbol("load"), Sfalse);
+    return 1;
+  }
+  return 0;
+}
+
 static void load(tc, n, base) ptr tc; iptr n; IBOOL base; {
   ptr x; iptr i;
-  ptr load_binary = Sfalse;
 
   if (base) {
     S_G.error_invoke_code_object = S_boot_read(bd[n].file, bd[n].path);
@@ -837,11 +850,6 @@ static void load(tc, n, base) ptr tc; iptr n; IBOOL base; {
     if (!Srecordp(S_G.base_rtd)) {
       S_abnormal_exit();
     }
-  } else {
-    ptr make_load_binary = SYMVAL(Sstring_to_symbol("$make-load-binary"));
-    if (Sprocedurep(make_load_binary)) {
-      load_binary = Scall3(make_load_binary, Sstring(bd[n].path), Sstring_to_symbol("load"), Sfalse);
-    }
   }
 
   i = 0;
@@ -855,10 +863,10 @@ static void load(tc, n, base) ptr tc; iptr n; IBOOL base; {
     if (Sprocedurep(x)) {
       S_initframe(tc, 0);
       x = boot_call(tc, x, 0);
-    } else if (Sprocedurep(load_binary)) {
+    } else if (Sprocedurep(S_G.load_binary) || set_load_binary(n)) {
       S_initframe(tc, 1);
       S_put_arg(tc, 1, x);
-      x = boot_call(tc, load_binary, 1);
+      x = boot_call(tc, S_G.load_binary, 1);
     } else if (Svectorp(x)) {
       iptr j, n;
       n = Svector_length(x);
@@ -882,6 +890,7 @@ static void load(tc, n, base) ptr tc; iptr n; IBOOL base; {
     i += 1;
   }
 
+  S_G.load_binary = Sfalse;
   gzclose(bd[n].file);
 }
 
@@ -1089,6 +1098,7 @@ extern void Sbuild_heap(kernel, custom_init) const char *kernel; void (*custom_i
     S_boot_time = 0;
 
     while (i < boot_count) load(tc, i++, 0);
+    S_G.make_load_binary_symbol = Sfalse;
   }
 
   if (boot_count != 0) Scompact_heap();
