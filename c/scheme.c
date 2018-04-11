@@ -127,6 +127,8 @@ static void main_init() {
     S_G.heap_reserve_ratio_id = S_intern((const unsigned char *)"$heap-reserve-ratio");
     SETSYMVAL(S_G.heap_reserve_ratio_id, Sflonum(default_heap_reserve_ratio));
 
+    S_protect(&S_G.scheme_version_symbol);
+    S_G.scheme_version_symbol = S_intern((const unsigned char *)"$scheme-version");
     S_protect(&S_G.make_load_binary_symbol);
     S_G.make_load_binary_symbol = S_intern((const unsigned char *)"$make-load-binary");
     S_protect(&S_G.load_binary);
@@ -823,6 +825,7 @@ static void handle_visit_revisit(tc, p) ptr tc; ptr p; {
 }
 
 static int set_load_binary(iptr n) {
+  if (SYMVAL(S_G.scheme_version_symbol) == sunbound) return 0; // set by back.ss
   ptr make_load_binary = SYMVAL(S_G.make_load_binary_symbol);
   if (Sprocedurep(make_load_binary)) {
     S_G.load_binary = Scall3(make_load_binary, Sstring(bd[n].path), Sstring_to_symbol("load"), Sfalse);
@@ -1099,6 +1102,7 @@ extern void Sbuild_heap(kernel, custom_init) const char *kernel; void (*custom_i
 
     while (i < boot_count) load(tc, i++, 0);
     S_G.make_load_binary_symbol = Sfalse;
+    S_G.scheme_version_symbol = Sfalse;
   }
 
   if (boot_count != 0) Scompact_heap();

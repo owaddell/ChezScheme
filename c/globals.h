@@ -73,6 +73,7 @@ EXTERN struct {
     ptr heap_reserve_ratio_id;
     IBOOL retain_static_relocation;
     IBOOL enable_object_counts;
+    ptr scheme_version_symbol;
     ptr make_load_binary_symbol;
     ptr load_binary;
 
