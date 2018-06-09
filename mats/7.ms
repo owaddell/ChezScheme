@@ -3620,6 +3620,8 @@ evaluating module init
   (eqv? (exit-code '(exit)) 0)
   (eqv? (exit-code '(exit 15)) 15)
   (eqv? (exit-code '(exit 24 7)) 24)
+  (eqv? (exit-code '(exit 3.14)) 1)
+  (eqv? (exit-code '(exit 9.8 3.14)) 1)
  )
 
 (mat abort
