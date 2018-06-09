@@ -3611,6 +3611,15 @@ evaluating module init
   (error? ; unexpected return from handler
     (parameterize ([exit-handler values])
       (exit 5)))
+  (begin
+    (define (exit-code expr)
+      (if (windows?)
+          (system (format "echo ~s | ~a -q" expr (patch-exec-path *scheme*)))
+          (system (format "echo '~s' | ~a -q" expr *scheme*))))
+    #t)
+  (eqv? (exit-code '(exit)) 0)
+  (eqv? (exit-code '(exit 15)) 15)
+  (eqv? (exit-code '(exit 24 7)) 24)
  )
 
 (mat abort

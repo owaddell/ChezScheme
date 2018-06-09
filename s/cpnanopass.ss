@@ -12236,6 +12236,7 @@
                     (inline ,(make-info-c-simple-call #f (lookup-c-entry Sreturn)) ,%c-simple-call)
                     (label ,Lmvreturn)
                     (set! ,(ref-reg %ac1) ,%ac0)
+                    (set! ,%ac0 ,(make-arg-opnd 1))
                     (goto ,Lexit))))]
            [else ($oops who "unrecognized hand-coded name ~s" sym)])]))
 
