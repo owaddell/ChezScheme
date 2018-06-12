@@ -825,19 +825,17 @@
         (lambda (k)
           (parameterize ([abort-handler
                           (case-lambda [() (k -1)] [(x) (k x)])]
-                         [exit-handler k]
+                         [exit-handler
+                          (case-lambda [() (k (void))] [(x . args) (k x)])]
                          [reset-handler (lambda () (k -1))])
             (apply (scheme-start) fns)))))
     (unless (suppress-greeting)
       (display ($scheme-greeting) (console-output-port))
       (newline (console-output-port))
       (flush-output-port (console-output-port)))
-    (call-with-values
-      (lambda ()
-        (if-feature expeditor
-          (if ($enable-expeditor) ($expeditor go) (go))
-          (go)))
-      (case-lambda [() (void)] [(x . args) x]))))
+    (if-feature expeditor
+      (if ($enable-expeditor) ($expeditor go) (go))
+      (go))))
 
 (set! $script
   (lambda (program? fn fns)
