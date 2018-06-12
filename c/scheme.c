@@ -332,7 +332,18 @@ static ptr boot_call(tc, p, n) ptr tc; ptr p; INT n; {
 
     CP(tc) = Svoid; /* leave clean so direct Scall won't choke */
 
-    return AC0(tc);
+    switch ((iptr)AC1(tc)) {
+        case 1:
+            p = AC0(tc);
+            break;
+        case 0:
+            p = Svoid;
+            break;
+        default:
+            p = S_get_scheme_arg(tc, 1);
+            break;
+    }
+    return p;
 }
 
 static void check_ap(tc) ptr tc; {
