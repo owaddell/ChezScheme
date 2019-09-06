@@ -6080,13 +6080,19 @@
 
 (global-extend 'core 'syntax
   (let ()
+    (define-record-type mistake
+      (nongenerative)
+      (fields
+       (immutable outer)
+       (immutable inner)
+       (immutable id)))
     (define gen-syntax
       (lambda (src e r maps ellipsis? vec?)
         (if (id? e)
             (cond
               [(lookup-pattern-variable (id->label e empty-wrap) r) =>
                (lambda (var.lev)
-                 (let-values ([(var maps) (gen-ref src (car var.lev) (cdr var.lev) maps)])
+                 (let-values ([(var maps) (gen-ref e src (car var.lev) (cdr var.lev) maps)])
                    (when (getenv "HACK")
                      (printf "gen-syntax id = ~s var = ~s\n" e var))
                    (values `(ref ,var ,e) maps)))]
@@ -6141,18 +6147,18 @@
               (_ (values `(quote ,e) maps))))))
 
     (define gen-ref
-      (lambda (src var level maps)
+      (lambda (id src var level maps)
         (if (fx= level 0)
             (values var maps)
             (if (null? maps)
                 (syntax-error src (format "missing ellipsis for ~s in syntax form" var))
-                (let-values ([(outer-var outer-maps) (gen-ref src var (fx- level 1) (cdr maps))])
-                  (let ((b (assq outer-var (car maps))))
+                (let-values ([(outer-var outer-maps) (gen-ref id src var (fx- level 1) (cdr maps))])
+                  (let ((b (find (lambda (m) (eq? outer-var (mistake-outer m))) (car maps))))
                     (if b
-                        (values (cdr b) maps)
+                        (values (mistake-inner b) maps)
                         (let ((inner-var (gen-var 'tmp)))
                           (values inner-var
-                                  (cons (cons (cons outer-var inner-var)
+                                  (cons (cons (make-mistake outer-var inner-var id)
                                               (car maps))
                                         outer-maps))))))))))
 
@@ -6168,8 +6174,8 @@
 
     (define gen-map
       (lambda (e map-env)
-        (let ((formals (map cdr map-env))
-              (actuals (map (lambda (x) `(ref ,(car x) TODO_CHICKENED_OUT)) map-env)))
+        (let ((formals (map mistake-inner map-env))
+              (actuals (map (lambda (x) `(ref ,(mistake-outer x) ,(mistake-id x))) map-env)))
           (cond
             ((eq? (car e) 'ref)
              ; identity map equivalence:
