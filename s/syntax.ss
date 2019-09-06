@@ -6087,7 +6087,9 @@
               [(lookup-pattern-variable (id->label e empty-wrap) r) =>
                (lambda (var.lev)
                  (let-values ([(var maps) (gen-ref src (car var.lev) (cdr var.lev) maps)])
-                   (values `(ref ,var) maps)))]
+                   (when (getenv "HACK")
+                     (printf "gen-syntax id = ~s var = ~s\n" e var))
+                   (values `(ref ,var ,e) maps)))]
               [(ellipsis? e) (syntax-error src "misplaced ellipsis in syntax form")]
               [else (values `(quote ,e) maps)])
             (syntax-case e ()
@@ -6167,7 +6169,7 @@
     (define gen-map
       (lambda (e map-env)
         (let ((formals (map cdr map-env))
-              (actuals (map (lambda (x) `(ref ,(car x))) map-env)))
+              (actuals (map (lambda (x) `(ref ,(car x) TODO_CHICKENED_OUT)) map-env)))
           (cond
             ((eq? (car e) 'ref)
              ; identity map equivalence:
@@ -6231,10 +6233,31 @@
                `(quote #&,(cadr xnew))))
           (else `(box ,xnew)))))
 
+    (define (get-source x) ;; TODO probably a better way to get source, maybe already existing procedure?
+      (if #t ;; TODO make this conditional on whether we're dumping source info
+          (cond
+           [(eq? x 'TODO_CHICKENED_OUT)
+            ;; TODO gave up slogging through the map-env stuff
+            ;;      we may be able to fix gen-ref so it builds map env that contains what we need
+            ;;      but first, lets see if this is even remotely useful as is
+            no-source]
+           [(syntax-object? x)
+            (let ([a (syntax-object-expression x)])
+              (if (annotation? a)
+                  (begin
+                    (when (getenv "HACK")
+                      (printf "regen preserving source for ~s\n" x))
+                    a)
+                  no-source))]
+           [else
+            (printf "APPARENTLY DID NOT UNDERSTAND CODE, got ~s\n" x)
+            no-source])
+          no-source))
+
     (define regen
       (lambda (x)
         (case (car x)
-          ((ref) (build-lexical-reference no-source (cadr x)))
+          ((ref) (build-lexical-reference (get-source (caddr x)) (cadr x)))
           ((primitive) (build-primref 3 (cadr x)))
           ((quote) (build-data no-source (cadr x)))
           ((lambda) (build-lambda no-source (cadr x) (regen (caddr x))))
