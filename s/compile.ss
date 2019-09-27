@@ -1,3 +1,43 @@
+;; ==== DELETE THIS ====                              
+;; TODO
+;;  - [ ] start over in wake of Kent's massive overhaul
+;;    - importing a library (object file) now just does 'visit',
+;;      which is what we want, but is that true if we're using
+;;      expand-library in place of compile-library?
+;;    - [ ] looks like we need to change .wpo layout to put
+;;          the rcinfo up front if we want to get syntax.ss
+;;          to visit it as an object file
+;;  - [ ] provide a way to suspend compilation after expand
+;;    - interesting, (load "foo.wpo") already works since the .wpo file
+;;      is written with a compiled-file-header
+;;    - want to leverage the existing machinery of maybe-compile-file
+;;      and the library import stuff so folks could expand everything
+;;      at one go
+;;    - [X] option 1: add explicit expand-file entry point that simply
+;;      does .wpo output (could just reuse .wpo extension)
+;;      - handle libraries and such via:
+;;        (compile-imported-libraries #t)
+;;        (compile-library-handler expand-library)
+;;        (compile-program-handler expand-file)
+;;        (library-extensions '((".ss" . ".wpo")))
+;;        (import (my library))
+;;    - option 2: ? add parameter (compile-stop-after phase) that
+;;      only supports phases #f and 'expand
+;;    - option 3: ? or set a (current-compile) to expand, but that's not
+;;      quite right because we need to call expand w/ a bunch of magic flags
+;;  - [ ] add an entry point that can rip through a .wpo file and run some
+;;        uncprep code on it
+;;  - [ ] code-talker could set an inotify watch on the source directory
+;;    - delete cache entry for the modified file
+;;    - maybe we keep track of library dependencies, maybe walking over
+;;      ctdesc-include-req*
+;;  - [ ] add a way for compile-file to resume w/ expanded file
+;;  - [ ] add sauce to find the expanded file if not older than source file
+;;        e.g., in maybe-compile and friends
+;;  - [ ] ? should expand-file should work if only petite.boot is loaded?
+;;  - [ ] consider factoring out script-reading code for reuse
+;; ==== DELETE THIS ====
+
 ;;; compile.ss
 ;;; Copyright 1984-2017 Cisco Systems, Inc.
 ;;; 
@@ -640,13 +680,14 @@
                    [enable-error-source-expression (enable-error-source-expression)]
                    [enable-unsafe-application (enable-unsafe-application)]
                    [enable-type-recovery (enable-type-recovery)])
-      (emit-header op (constant scheme-version) (constant machine-type))
+      (when op (emit-header op (constant scheme-version) (constant machine-type)))
       (when hostop (emit-header hostop (constant scheme-version) (host-machine-type)))
       (when wpoop (emit-header wpoop (constant scheme-version) (host-machine-type)))
       (let cfh0 ([n 1] [rrcinfo** '()] [rlpinfo** '()] [rfinal** '()])
         (let ([x0 ($pass-time 'read do-read)])
           (if (eof-object? x0)
-              (compile-file-help2 op (reverse rrcinfo**) (reverse rlpinfo**) (reverse rfinal**) external?-pred omit-rtds?)
+              (when op
+                (compile-file-help2 op (reverse rrcinfo**) (reverse rlpinfo**) (reverse rfinal**) external?-pred omit-rtds?))
               (let ()
                 (define source-info-string
                   (and (or ($assembly-output) (expand-output) (expand/optimize-output))
@@ -687,19 +728,21 @@
                                 ($fasl-enter x1 t (constant annotation-all) 0)
                                 ($fasl-start wpoop t (constant fasl-type-visit-revisit) x1 (constant annotation-all)
                                              (lambda (x p) ($fasl-out x p t (constant annotation-all)))))))))))
-                  (let-values ([(rcinfo* lpinfo* final*) (compile-file-help1 x1 source-info-string)])
-                    (when hostop
-                      ; the host library file contains expander output possibly augmented with
-                      ; cross-library optimization information inserted by cp0.  this write must come
-                      ; after cp0, at least, so that cp0 has a chance to insert that information.
-                      ($with-fasl-target (host-machine-type)
-                        (lambda ()
-                          (parameterize ([$target-machine (machine-type)])
-                            (let ([t ($fasl-table)])
-                              ($fasl-enter x1 t (constant annotation-all) 0)
-                              ($fasl-start hostop t (constant fasl-type-visit-revisit) x1 (constant annotation-all)
-                                           (lambda (x p) ($fasl-out x p t (constant annotation-all)))))))))
-                    (cfh0 (+ n 1) (cons rcinfo* rrcinfo**) (cons lpinfo* rlpinfo**) (cons final* rfinal**)))))))))))
+                  (if (not op)
+                      (cfh0 (+ n 1) rrcinfo** rlpinfo** rfinal**)
+                      (let-values ([(rcinfo* lpinfo* final*) (compile-file-help1 x1 source-info-string)])
+                        (when hostop
+                          ; the host library file contains expander output possibly augmented with
+                          ; cross-library optimization information inserted by cp0.  this write must come
+                          ; after cp0, at least, so that cp0 has a chance to insert that information.
+                          ($with-fasl-target (host-machine-type)
+                            (lambda ()
+                              (parameterize ([$target-machine (machine-type)])
+                                (let ([t ($fasl-table)])
+                                  ($fasl-enter x1 t (constant annotation-all) 0)
+                                  ($fasl-start hostop t (constant fasl-type-visit-revisit) x1 (constant annotation-all)
+                                               (lambda (x p) ($fasl-out x p t (constant annotation-all)))))))))
+                        (cfh0 (+ n 1) (cons rcinfo* rrcinfo**) (cons lpinfo* rlpinfo**) (cons final* rfinal**))))))))))))
 
 (define library/program-info?
   (lambda (x)
@@ -2137,12 +2180,17 @@
                   (lambda (source-table)
                     (compile-file-help op hostop wpoop source-table machine sfd do-read out #f #f))))))))))
 
-  (define (do-compile-file who in out hostout machine r6rs?)
+  (define (do-expand-to-file who out _hostout machine sfd do-read)
+    (with-object-file who out
+      (lambda (wpoop)
+        (compile-file-help #f #f wpoop #f machine sfd do-read out))))
+
+  (define (do-file who in out hostout machine r6rs? operation handler)
     (unless (string? in) ($oops who "~s is not a string" in))
     (unless (string? out) ($oops who "~s is not a string" out))
     (unless (symbol? machine) ($oops who "~s is not a symbol" machine))
     (unless (eq? machine (constant machine-type-name)) ($oops who "compiler for ~s is not loaded" machine))
-    (when (compile-file-message) (printf "compiling ~a with output to ~a~@[ (host output to ~a)~]\n" in out hostout))
+    (when (compile-file-message) (printf "~a ~a with output to ~a~@[ (host output to ~a)~]\n" operation in out hostout))
     (let ([ip ($open-file-input-port who in)])
       (on-reset (close-port ip)
         (let ([sfd ($source-file-descriptor in ip)])
@@ -2164,8 +2212,16 @@
                           (begin
                             (set-port-position! ip start-pos)
                             0)))])
-            (do-compile-to-file who out hostout machine sfd ($make-read ip sfd fp)))))
+            (handler who out hostout machine sfd ($make-read ip sfd fp)))))
       (close-port ip)))
+
+  (define (do-compile-file who in out hostout machine r6rs?)
+    (do-file who in out hostout machine r6rs? "compiling"
+      do-compile-to-file))
+
+  (define (do-expand-file who in out r6rs?)
+    (do-file who in out #f (constant machine-type-name) r6rs? "expanding"
+      do-expand-to-file))
 
   (define (do-compile-script who in out machine r6rs?)
     (define ($make-read-program ip sfd fp)
@@ -2347,5 +2403,21 @@
                (let ([library-collector (make-parameter '())])
                  (parameterize ([$require-libraries library-collector]) (go))
                  (library-collector))
-               (go)))]))))
+               (go)))])))
+
+  (set-who! expand-file
+    (case-lambda
+      [(in out) (do-expand-file who in out #f)]
+      [(in)
+       (unless (string? in) ($oops who "~s is not a string" in))
+       (let-values ([(in out) (in&out in)])
+         (do-expand-file who in out #f))]))
+
+  (set-who! expand-library
+    (case-lambda
+      [(in out) (do-expand-file who in out #t)]
+      [(in)
+       (unless (string? in) ($oops who "~s is not a string" in))
+       (let-values ([(in out) (in&out in)])
+         (do-expand-file who in out #t))])))
 );let

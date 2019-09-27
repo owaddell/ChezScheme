@@ -1329,6 +1329,8 @@
   (eval [sig [(ptr) (ptr environment) -> (ptr ...)]] [flags])  ; not restricted to two arguments
   (exit [sig [(ptr ...) -> (bottom)]] [flags abort-op]) ; not restricted to 0 or 1 argument
   (expand [sig [(ptr) (ptr environment) (ptr environment ptr) (ptr environment ptr ptr) (ptr environment ptr ptr maybe-string) -> (ptr)]] [flags])
+  (expand-file [sig [(pathname) (pathname pathname) -> (void)]] [flags true])
+  (expand-library [sig [(pathname) (pathname pathname) -> (void)]] [flags true])
   (expand/optimize [sig [(ptr) (ptr environment) -> (ptr)]] [flags])
   (expt-mod [sig [(integer integer integer) -> (integer)]] [flags arith-op mifoldable discard])
   (fasl-file [sig [(pathname pathname) -> (void)]] [flags true])
