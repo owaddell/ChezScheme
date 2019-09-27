@@ -7558,7 +7558,42 @@
     (and (pair? x) (equal? (car x) noexpand))))
 
 
+
 (set! $build-library-exts build-library-exts)
+
+(set! $replace-source
+  ;; TODO this seems better, but still needs lots of testing
+  (lambda (src x)
+    ;; Don't require x to be a syntax object, since we might be
+    ;; applying source information to something constructed from
+    ;; pieces of the input that have already been unwrapped.
+    ;;  (syntax-case syn ()
+    ;;    [(_ a b)
+    ;;     (with-syntax ([c (replace-source syn #'(b a))])
+    ;;       ...)])
+    (let-values ([(e w)
+                  (if (syntax-object? x)
+                      (values
+                       (syntax-object-expression x)
+                       (syntax-object-wrap x))
+                      (values x empty-wrap))])
+      (let ([e (if (annotation? e) (annotation-expression e) e)])
+        (cond
+         [(syntax->annotation src) => (lambda (ae) (source-wrap e w ae))]
+         [else (wrap e w)])))))
+
+(set! $construct-name ;; TODO should we lift this out at some point? (see the one in swish)
+  (lambda (template-identifier . args)
+    (datum->syntax
+     template-identifier
+     (string->symbol
+      (apply string-append
+        (map (lambda (x)
+               (if (string? x)
+                   x
+                   (symbol->string (syntax->datum x))))
+          args))))))
+
 ))
 
 (current-expand sc-expand)
@@ -8085,6 +8120,7 @@
       ((_ (name id1 ...) ((id2 init) ...))
        (andmap identifier? (syntax (name id1 ... id2 ...)))
        (with-syntax
+        ;; TODO in theory we might want to hit these as well with $replace-source
          ((constructor (construct-name (syntax name) "make-" (syntax name)))
           (predicate (construct-name (syntax name) (syntax name) "?"))
           ((access ...)
@@ -9739,8 +9775,8 @@
                      [(id2 ...) (map field->id f2s)]
                      [primlev (if (= (optimize-level) 3) 3 2)]
                      [prefix (or pref-id (construct-name name name "-"))]
-                     [constructor (or cons-id (construct-name name "make-" name))]
-                     [predicate (or pred-id (construct-name name name "?"))])
+                     [constructor (or cons-id ($replace-source name (construct-name name "make-" name)))]
+                     [predicate (or pred-id ($replace-source name (construct-name name name "?")))])
                 (unless (disjoint? (map syntax->datum #'(id1 ... id2 ...)))
                   (syntax-error src "duplicate field names in record definition"))
                 (with ([rtd (if prtd
@@ -9754,7 +9790,7 @@
                          [npids (length pids)])
                     (with ([((access ordinal) ...)
                             (map (lambda (id ordinal)
-                                   (list (construct-name #'name #'prefix id)
+                                   (list ($replace-source id (construct-name #'name #'prefix id))
                                          ordinal))
                               (list-tail allids npids)
                               (list-tail (enumerate allids) npids))]
@@ -9766,7 +9802,8 @@
                                   (if (csv7:record-field-mutable? #'rtd ordinal)
                                       (cons
                                         (list
-                                          (construct-name #'name "set-" #'prefix (car ids) "!")
+                                          ($replace-source (car ids)
+                                            (construct-name #'name "set-" #'prefix (car ids) "!"))
                                           ordinal)
                                         (f (cdr ids) (+ ordinal 1)))
                                       (f (cdr ids) (+ ordinal 1)))))])
