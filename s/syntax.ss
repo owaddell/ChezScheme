@@ -364,6 +364,14 @@
 (let ()
 (define noexpand "noexpand")
 
+(define-syntax maybe-log
+  (syntax-rules ()
+    [(_ context val ...)
+     (cond
+      [($report-source-info) =>
+       (lambda (log!)
+         (log! context val ...))])]))
+
 ;;; hooks to nonportable run-time helpers
 
 (include "types.ss")
@@ -463,6 +471,11 @@
     (and (and (annotation? ae) (fxlogtest (annotation-flags ae) (constant annotation-debug)))
          (annotation-source ae))))
 
+(define prelex->src
+  (lambda (prelex)
+    ;; TODO should we do anything w/ sym name ?
+    (ae->src (prelex-source prelex))))
+
 (define build-profile
   (lambda (ae e)
     (define ae->profile-src
@@ -477,30 +490,34 @@
 
 (module (build-lambda build-lambda/lift-barrier build-library-case-lambda build-case-lambda)
   (define build-clause
-    (lambda (fmls body)
-      (let f ((ids fmls) (n 0))
+    (lambda (src fmls body)
+      (define (return fmls iface body)
+        (maybe-log 'lambda src (map prelex->src fmls) (meta-level)) ;; do we care about iface?
         (in-context CaseLambdaClause
-          (cond
-            ((pair? ids) (f (cdr ids) (fx+ n 1)))
-            ((null? ids) `(clause (,fmls ...) ,n ,body))
-            (else
-             `(clause
-                (,(let f ((ids fmls))
-                    (if (pair? ids)
-                        (cons (car ids) (f (cdr ids)))
-                        (list ids))) ...)
-                ,(fx- -1 n)
-                ,body)))))))
+          `(clause (,fmls ...) ,iface ,body)))
+      (let f ((ids fmls) (n 0))
+        (cond
+         ((pair? ids) (f (cdr ids) (fx+ n 1)))
+         ((null? ids) (return fmls n body))
+         (else
+          (return
+           (let f ((ids fmls))
+             (if (pair? ids)
+                 (cons (car ids) (f (cdr ids)))
+                 (list ids)))
+           (fx- -1 n)
+           body))))))
 
   (define build-clauses
-    (lambda (clauses)
-      (map (lambda (x) (build-clause (car x) (cadr x))) clauses)))
+    (lambda (src clauses)
+      (map (lambda (x) (build-clause src (car x) (cadr x))) clauses)))
 
   (define build-lambda
     (lambda (ae vars exp)
       (build-profile ae
-         `(case-lambda ,(make-preinfo-lambda (ae->src ae))
-            ,(build-clause vars exp)))))
+        (let ([src (ae->src ae)])
+         `(case-lambda ,(make-preinfo-lambda src)
+            ,(build-clause src vars exp))))))
 
   (define build-lambda/lift-barrier
     (lambda (ae vars exp)
@@ -511,13 +528,14 @@
   (define build-case-lambda
     (lambda (ae clauses)
       (build-profile ae
-        `(case-lambda ,(make-preinfo-lambda (ae->src ae) #f)
-           ,(build-clauses clauses) ...))))
+        (let ([src (ae->src ae)])
+          `(case-lambda ,(make-preinfo-lambda (ae->src ae) #f)
+             ,(build-clauses src clauses) ...)))))
 
   (define build-library-case-lambda
     (lambda (ae libspec clauses)
       (build-profile ae
-        (let ([clauses (build-clauses clauses)])
+        (let ([clauses (build-clauses (ae->src ae) clauses)])
           (unless (equal? (list (libspec-interface libspec))
                     (map (lambda (clause)
                            (nanopass-case (Lsrc CaseLambdaClause) clause
@@ -565,15 +583,19 @@
 
 (define build-lexical-reference
   (lambda (ae prelex)
-    (if (prelex-referenced prelex)
-        (set-prelex-multiply-referenced! prelex #t)
-        (set-prelex-referenced! prelex #t))
-    (build-profile ae `(ref ,(ae->src ae) ,prelex))))
+    (let ([src (ae->src ae)])
+      (maybe-log 'ref src (prelex->src prelex))
+      (if (prelex-referenced prelex)
+          (set-prelex-multiply-referenced! prelex #t)
+          (set-prelex-referenced! prelex #t))
+      (build-profile ae `(ref ,src ,prelex)))))
 
 (define build-lexical-assignment
   (lambda (ae var exp)
-    (set-prelex-assigned! var #t)
-    (build-profile ae `(set! ,(ae->src ae) ,var ,exp))))
+    (let ([src (ae->src ae)])
+      (maybe-log 'set! src (prelex->src var))
+      (set-prelex-assigned! var #t)
+      (build-profile ae `(set! ,src ,var ,exp)))))
 
 (define build-cte-optimization-loc
   (lambda (box exp exts)
@@ -584,12 +606,14 @@
 
 (define build-primitive-reference
   (lambda (ae name)
+    (maybe-log 'primref (ae->src ae) name (meta-level))
     (if ($suppress-primitive-inlining)
         (build-primcall ae 3 '$top-level-value `(quote ,name))
         (build-profile ae (lookup-primref (fxmax (optimize-level) 2) name)))))
 
 (define build-primitive-assignment
   (lambda (ae name val)
+    (maybe-log 'primset! (ae->src ae) name (meta-level))
     (build-primcall ae 3 '$set-top-level-value! `(quote ,name) val)))
 
 (module (build-global-reference build-global-assignment)
@@ -602,11 +626,13 @@
   (define build-global-reference
     (lambda (ae name safe?)
       (when (eq? (subset-mode) 'system) (unbound-warning (ae->src ae) "reference to" name))
+      (maybe-log 'tl-ref (ae->src ae) name (meta-level))
       (build-primcall ae (if (or safe? (fx= (optimize-level) 3)) 3 2) '$top-level-value `(quote ,name))))
 
   (define build-global-assignment
     (lambda (ae name val)
       (when (eq? (subset-mode) 'system) (unbound-warning (ae->src ae) "assignment to" name))
+      (maybe-log 'tl-set! (ae->src ae) name (meta-level))
       (build-primcall ae 3 '$set-top-level-value! `(quote ,name) val))))
 
 (define build-cte-install
@@ -742,6 +768,7 @@
 
 (define build-letrec
   (lambda (ae vars val-exps body-exp)
+    (maybe-log 'letrec (ae->src ae) (map prelex->src vars) (meta-level))
     (build-profile ae
       (if (null? vars)
           body-exp
@@ -749,6 +776,7 @@
 
 (define build-letrec*
   (lambda (ae vars val-exps body-exp)
+    (maybe-log 'letrec* (ae->src ae) (map prelex->src vars) (meta-level))
     (build-profile ae
       (if (null? vars)
           body-exp
@@ -5347,6 +5375,13 @@
                  void
                  (get-lpinfo fn situation)))))
           (for-each (lambda (libdirs fn) (parameterize ([library-directories libdirs]) (check-fn! situation fn #f))) libdirs* fn*)))))
+
+  (set-who! $report-source-info
+    ($make-thread-parameter #f
+      (lambda (x)
+        (unless (or (not x) (procedure? x))
+          (errorf who "invalid value for parameter: ~s" x))
+        x)))
 
   (let ()
     (define maybe-get-lib
