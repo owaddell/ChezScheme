@@ -2398,6 +2398,7 @@
   ($reloc [flags single-valued])
   ($remake-rtd [flags single-valued])
   ($replace-source [sig [(source-object ptr) -> (ptr)]] [flags])
+  ($report-source-info [sig [() -> (maybe-procedure)] [(ptr) -> (void)]] [flags])
   ($report-string [flags single-valued])
   ($require-include [flags single-valued])
   ($require-libraries [flags single-valued])
