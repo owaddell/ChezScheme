@@ -37,6 +37,8 @@
           [(library/rt-info ,linfo/rt) `(library/rt-info ,(library-info-uid linfo/rt) ,(library/rt-info-invoke-req* linfo/rt))]
           [(program-info ,pinfo) `(program-info ,(program-info-invoke-req* pinfo))])
         (Inner ir))
+;; TODO find better way to do this (prevents duplicate output for maybe-log 'letrec* etc.
+(parameterize ([$report-source-info #f])
       (let ([x* (let f ([x x] [x* '()])
                   (nanopass-case (Lexpand Outer) x
                     [(group ,outer1 ,outer2) (f outer1 (f outer2 x*))]
@@ -49,6 +51,7 @@
         (cond
           [(= (length x*) 1) (car x*)]
           [else `(begin ,@x*)]))))
+)
 
   (set-who! $uncprep
     (rec $uncprep
