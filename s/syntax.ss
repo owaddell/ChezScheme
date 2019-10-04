@@ -797,9 +797,12 @@
                             (let ([var (car vars)] [val-exp (car val-exps)])
                               (let-values ([(vars val-exps) (f (cdr types) (cdr vars) (cdr val-exps))])
                                 (if (eq? (car types) 'global)
-                                    (values
-                                      (cons (build-lexical-var no-source 'ignore) vars)
-                                      (cons (build-global-assignment no-source var val-exp) val-exps))
+                                    (let ([var (car var)] [id-ae (cdr var)]) ;; TODO global-only HACK (see chi-top-module)
+                                      (values
+                                        ;; TODO should we be doing something w/ no-source here???
+                                        (cons (build-lexical-var no-source 'ignore) vars)
+                                        ;; TODO trying to get id ae here (this would be a change to tl-set!'s current entire form ae)
+                                        (cons (build-global-assignment id-ae var val-exp) val-exps)))
                                     (values
                                       (cons var vars)
                                       (cons val-exp val-exps)))))))])
@@ -811,10 +814,13 @@
                             (let ([var (car vars)])
                               (let-values ([(vars sets) (f (cdr types) (cdr vars))])
                                 (if (eq? (car types) 'global)
-                                    (let ([x (build-lexical-var no-source var)])
-                                      (values
-                                        (cons x vars)
-                                        (cons (build-global-assignment no-source var (build-lexical-reference no-source x)) sets)))
+                                    (let ([var (car var)] [id-ae (cdr var)]) ;; TODO global-only HACK (see chi-top-module)
+                                      ;; TODO should we be doing something w/ no-source here???
+                                      (let ([x (build-lexical-var no-source var)])
+                                        (values
+                                         (cons x vars)
+                                         ;; TODO trying to get id ae here (this would be a change to tl-set!'s current entire form ae)
+                                         (cons (build-global-assignment id-ae var (build-lexical-reference no-source x)) sets))))
                                     (values (cons var vars) sets))))))])
           (build-letrec ae vars val-exps
             (if (null? sets)
@@ -877,7 +883,8 @@
           (lambda (label box var body)
             (if label
                 `(seq
-                   ,(build-global-assignment no-source label
+                   ;; TODO trying to get id ae here (this would be a change to tl-set!'s current entire form ae)
+                   ,(build-global-assignment (prelex-source var) label
                       (build-cte-optimization-loc box
                         (build-lexical-reference no-source var)
                         exts))
@@ -2297,6 +2304,7 @@
                        (lambda () (build-cte-install id (build-data no-source binding) top-token))))
                    rcode*))]
               [meta-define (id label binding expr import* visit* invoke*)
+               (define id-ae (syntax-object-expression id))
                (process-forms (cdr bf*)
                  (cons
                    (ct-eval/residualize ctem
@@ -2306,7 +2314,8 @@
                          (build-sequence no-source
                            (list
                              (build-cte-install label (build-data no-source binding) #f)
-                             (build-global-assignment no-source label expr))))))
+                             ;; TODO trying to get id ae here (this would be a change to tl-set!'s current entire form ae)
+                             (build-global-assignment id-ae label expr))))))
                    rcode*))]
               [meta-eval (expr import* visit* invoke*)
                (process-forms (cdr bf*)
@@ -2837,6 +2846,7 @@
                              (cons `(,label . ,unexported-binding) env*)
                              vthunk vcode* dl* dv* de*)))]
                     [meta-define (id label binding expr)
+                     (define id-ae (syntax-object-expression id))
                      (if (mbodit-exported mb)
                          (let ([binding (make-binding 'library-meta-global (cons library-uid (binding-value binding)))])
                            (process-bindings mb*
@@ -2844,13 +2854,15 @@
                              (lambda () ($sc-put-cte label binding #f) (vthunk))
                              (cons*
                                (build-cte-install label (build-data no-source binding) #f)
-                               (build-global-assignment no-source label expr)
+                               ;; TODO trying to get id ae here (this would be a change to tl-set!'s current entire form ae)
+                               (build-global-assignment id-ae label expr)
                                vcode*)
                              dl* dv* de*))
                          (process-bindings mb*
                            (cons `(,label . ,unexported-binding) env*)
                            vthunk
-                           (cons (build-global-assignment no-source label expr) vcode*)
+                           ;; TODO trying to get id ae here (this would be a change to tl-set!'s current entire form ae)
+                           (cons (build-global-assignment id-ae label expr) vcode*)
                            dl* dv* de*))]
                     [meta-eval (expr)
                      (process-bindings mb* env* vthunk (cons expr vcode*) dl* dv* de*)]
@@ -2982,7 +2994,8 @@
                            (cons `(,label . ,b) env*)
                            vthunk vcode*
                            (cons 'global dt*)
-                           (cons label dv*)
+                           ;; TODO HACK package id-ae with label only in 'global case so we can hack up some source, how to do this better?
+                           (cons (cons label (syntax-object-expression id)) dv*)
                            (cons val de*)))
                        (let ([var (gen-var id)])
                          (set-binding-type! b 'lexical)
@@ -3024,18 +3037,21 @@
                          (cons `(,label . ,unexported-binding) env*)
                          vthunk vcode* dt* dv* de*)))]
                 [meta-define (id label binding expr)
+                 (define id-ae (syntax-object-expression id))
                  (if (mbodit-exported mb)
                      (process-bindings mb* env*
                        (lambda () ($sc-put-cte label binding #f) (vthunk))
                        (cons*
                          (build-cte-install label (build-data no-source binding) #f)
-                         (build-global-assignment no-source label expr)
+                         ;; TODO trying to get id ae here (this would be a change to tl-set!'s current entire form ae)
+                         (build-global-assignment id-ae label expr)
                          vcode*)
                        dt* dv* de*)
                      (process-bindings mb*
                        (cons `(,label . ,unexported-binding) env*)
                        vthunk
-                       (cons (build-global-assignment no-source label expr) vcode*)
+                       ;; TODO trying to get id ae here (this would be a change to tl-set!'s current entire form ae)
+                       (cons (build-global-assignment id-ae label expr) vcode*)
                        dt* dv* de*))]
                 [meta-eval (expr)
                  (process-bindings mb* env* vthunk (cons expr vcode*) dt* dv* de*)]
