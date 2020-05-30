@@ -916,22 +916,20 @@
         ; the first entry is always, if needed, a recompile-info record with recompile information for the entire object file
         ($pass-time 'pfasl
           (lambda ()
-            (unless (and (compile-omit-concatenate-support) (null? import-req*) (null? include-req*))
-              (c-print-fasl `(object ,(make-recompile-info import-req* include-req*)) op (constant fasl-type-visit-revisit) #f #f))
-            (for-each
-              (lambda (final*)
-                (for-each
-                  (lambda (x)
-                    (record-case x
-                      [(visit-stuff) x (c-print-fasl x op (constant fasl-type-visit) external?-pred omit-rtds?)]
-                      [(revisit-stuff) x (c-print-fasl x op (constant fasl-type-revisit) external?-pred omit-rtds?)]
-                      [else (c-print-fasl x op (constant fasl-type-visit-revisit) external?-pred omit-rtds?)]))
-                  final*))
-              (append lpinfo**
-                      (if (compile-omit-concatenate-support)
-                          final**
-                          ;; inserting #t after lpinfo as an end-of-header marker
-                          (cons (list `(object #t)) final**))))))))))
+            (define (do-final x)
+              (record-case x
+                [(visit-stuff) x (c-print-fasl x op (constant fasl-type-visit) external?-pred omit-rtds?)]
+                [(revisit-stuff) x (c-print-fasl x op (constant fasl-type-revisit) external?-pred omit-rtds?)]
+                [else (c-print-fasl x op (constant fasl-type-visit-revisit) external?-pred omit-rtds?)]))
+            (define (do-final* final*) (for-each do-final final*))
+            (define (do-concat x) (c-print-fasl x op (constant fasl-type-visit-revisit) #f #f))
+            (define omit-concatenate? (compile-omit-concatenate-support))
+            (unless (and omit-concatenate? (null? import-req*) (null? include-req*))
+              (do-concat `(object ,(make-recompile-info import-req* include-req*))))
+            (for-each do-final* lpinfo**)
+            (unless omit-concatenate?
+              (do-concat `(object #t)))
+            (for-each do-final* final**))))))))
 
 (define (new-extension new-ext fn)
   (let ([old-ext (path-extension fn)])
