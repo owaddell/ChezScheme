@@ -2178,6 +2178,25 @@
   (define (do-expand-to-file who out _hostout machine sfd do-read)
     (with-object-file who out
       (lambda (wpoop)
+        ;; TODO - deal with new constraint that rcinfo needs to be at front of fasl file
+        ;;      - Option 1
+        ;;        1. lift out the code from compile-file-help2 that does this
+        ;;        2. pass in some what-to-do-with-the-x1-form procedure to compile-file-help
+        ;;           - normal case will do compile-file-help1
+        ;;           - expand-to-file will delve into the Outer just far enough
+        ;;             to find the rcinfo and will call helpers in the code lifted
+        ;;             from compile-file-help2
+        ;;        3. figure out how to get the rcinfo to the front of the file:
+        ;;           - could make a second pass to concatenate files, but have to deal w/ tmp file
+        ;;           - could defer fasl-write to wpoop until the end, just accumulating everything
+        ;;             the way we're already accumulating the lpinfo** and final** in core already
+        ;;              - would harvest rcinfo at the end
+        ;;           - could fasl-write to a bytevector port and write real file at end
+        ;;              - would accumulate rcinfo along the way
+        ;;      - Option 2
+        ;;        - expose something internally that can delve into Outer to find the
+        ;;          recompile info
+        ;;        - but this is messed up because we'd still have to read the entire fasl file
         (compile-file-help #f #f wpoop #f machine sfd do-read out))))
 
   (define (do-file who in out hostout machine r6rs? operation handler)
