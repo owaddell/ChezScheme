@@ -721,13 +721,7 @@
                     ; the wpo file, we temporarily whack the optimization locs while writing the wpo file.
                     (with-whacked-optimization-locs x1
                       (lambda ()
-                        ($with-fasl-target (host-machine-type)
-                          (lambda ()
-                            (parameterize ([$target-machine (machine-type)])
-                              (let ([t ($fasl-table)])
-                                ($fasl-enter x1 t (constant annotation-all) 0)
-                                ($fasl-start wpoop t (constant fasl-type-visit-revisit) x1 (constant annotation-all)
-                                             (lambda (x p) ($fasl-out x p t (constant annotation-all)))))))))))
+                        (write-wpo-file-help wpoop x1))))
                   (if (not op)
                       (cfh0 (+ n 1) rrcinfo** rlpinfo** rfinal**)
                       (let-values ([(rcinfo* lpinfo* final*) (compile-file-help1 x1 source-info-string)])
@@ -743,6 +737,15 @@
                                   ($fasl-start hostop t (constant fasl-type-visit-revisit) x1 (constant annotation-all)
                                                (lambda (x p) ($fasl-out x p t (constant annotation-all)))))))))
                         (cfh0 (+ n 1) (cons rcinfo* rrcinfo**) (cons lpinfo* rlpinfo**) (cons final* rfinal**))))))))))))
+
+(define (write-wpo-file-help wpoop x)
+  ($with-fasl-target (host-machine-type)
+    (lambda ()
+      (parameterize ([$target-machine (machine-type)])
+        (let ([t ($fasl-table)])
+          ($fasl-enter x t (constant annotation-all) 0)
+          ($fasl-start wpoop t (constant fasl-type-visit-revisit) x (constant annotation-all)
+            (lambda (x p) ($fasl-out x p t (constant annotation-all)))))))))
 
 (define library/program-info?
   (lambda (x)
@@ -1731,15 +1734,9 @@
         (lambda (wpoop)
           (when wpoop
             (emit-header wpoop (constant scheme-version) (host-machine-type))
-            ($with-fasl-target (host-machine-type)
-              (lambda ()
-                (parameterize ([$target-machine (machine-type)])
-                  (let ([t ($fasl-table)])
-                    (let ([x (fold-left (lambda (outer ir) (with-output-language (Lexpand Outer) `(group ,outer ,ir)))
-                               (car ir*) (cdr ir*))])
-                      ($fasl-enter x t (constant annotation-all) 0)
-                      ($fasl-start wpoop t (constant fasl-type-visit-revisit) x (constant annotation-all)
-                                   (lambda (x p) ($fasl-out x p t (constant annotation-all))))))))))))))
+            (write-wpo-file-help wpoop
+              (fold-left (lambda (outer ir) (with-output-language (Lexpand Outer) `(group ,outer ,ir)))
+                (car ir*) (cdr ir*))))))))
 
   (define build-required-library-list
     (lambda (node* visit-lib*)
