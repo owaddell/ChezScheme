@@ -368,6 +368,8 @@
   (syntax-rules ()
     [(_ context val ...)
      (cond
+      ;; TODO are we actually logging anything that's not already available via preinfo ?
+      ;;      - ah, maybe the source for the formals of a case-lambda clause ?
       [($report-source-info) =>
        (lambda (log!)
          (log! context val ...))])]))
