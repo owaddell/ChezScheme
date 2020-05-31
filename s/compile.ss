@@ -686,8 +686,9 @@
       (let cfh0 ([n 1] [rrcinfo** '()] [rlpinfo** '()] [rfinal** '()])
         (let ([x0 ($pass-time 'read do-read)])
           (if (eof-object? x0)
-              (when op
-                (compile-file-help2 op (reverse rrcinfo**) (reverse rlpinfo**) (reverse rfinal**) external?-pred omit-rtds?))
+              (if (not op)
+                  (reverse rrcinfo**)
+                  (compile-file-help2 op (reverse rrcinfo**) (reverse rlpinfo**) (reverse rfinal**) external?-pred omit-rtds?))
               (let ()
                 (define source-info-string
                   (and (or ($assembly-output) (expand-output) (expand/optimize-output))
@@ -723,7 +724,7 @@
                       (lambda ()
                         (write-wpo-file-help wpoop x1))))
                   (if (not op)
-                      (cfh0 (+ n 1) rrcinfo** rlpinfo** rfinal**)
+                      (cfh0 (+ n 1) (cons (get-rcinfo* x1) rrcinfo**) rlpinfo** rfinal**)
                       (let-values ([(rcinfo* lpinfo* final*) (compile-file-help1 x1 source-info-string)])
                         (when hostop
                           ; the host library file contains expander output possibly augmented with
@@ -737,6 +738,16 @@
                                   ($fasl-start hostop t (constant fasl-type-visit-revisit) x1 (constant annotation-all)
                                                (lambda (x p) ($fasl-out x p t (constant annotation-all)))))))))
                         (cfh0 (+ n 1) (cons rcinfo* rrcinfo**) (cons lpinfo* rlpinfo**) (cons final* rfinal**))))))))))))
+
+(define (get-rcinfo* x1)
+  (define (cons-rcinfo e rcinfo*)
+    (nanopass-case (Lexpand Outer) e
+      [(recompile-info ,rcinfo) (cons rcinfo rcinfo*)]
+      [(group ,outer1 ,outer2)
+       (cons-rcinfo outer1
+         (cons-rcinfo outer2 rcinfo*))]
+      [else rcinfo*]))
+  (cons-rcinfo x1 '()))
 
 (define (write-wpo-file-help wpoop x)
   ($with-fasl-target (host-machine-type)
@@ -893,43 +904,49 @@
               [(revisit-chunk? x1) (finish-compile (revisit-chunk-chunk x1) (lambda (x) `(revisit-stuff . ,x)))]
               [else (finish-compile x1 values)]))))))
 
+(define (combine-recompile-info rcinfo**)
+  (define (libreq-hash x) (symbol-hash (libreq-uid x)))
+  (define (libreq=? x y) (eq? (libreq-uid x) (libreq-uid y)))
+  (let ([import-ht (make-hashtable libreq-hash libreq=?)]
+        [include-ht (make-hashtable string-hash string=?)])
+    (for-each
+     (lambda (rcinfo*)
+       (for-each
+        (lambda (rcinfo)
+          (for-each
+           (lambda (x) (hashtable-set! import-ht x #t))
+           (recompile-info-import-req* rcinfo))
+          (for-each
+           (lambda (x) (hashtable-set! include-ht x #t))
+           (recompile-info-include-req* rcinfo)))
+        rcinfo*))
+     rcinfo**)
+    (let ([import-req* (vector->list (hashtable-keys import-ht))]
+          [include-req* (vector->list (hashtable-keys include-ht))])
+      (and (not (null? import-req*))
+           (not (null? include-req*))
+           (make-recompile-info import-req* include-req*)))))
+
 (define compile-file-help2
   (lambda (op rcinfo** lpinfo** final** external?-pred omit-rtds?)
-    (define (libreq-hash x) (symbol-hash (libreq-uid x)))
-    (define (libreq=? x y) (eq? (libreq-uid x) (libreq-uid y)))
-    (let ([import-ht (make-hashtable libreq-hash libreq=?)]
-          [include-ht (make-hashtable string-hash string=?)])
-      (for-each
-        (lambda (rcinfo*)
-          (for-each
-            (lambda (rcinfo)
-              (for-each
-                (lambda (x) (hashtable-set! import-ht x #t))
-                (recompile-info-import-req* rcinfo))
-              (for-each
-                (lambda (x) (hashtable-set! include-ht x #t))
-                (recompile-info-include-req* rcinfo)))
-            rcinfo*))
-        rcinfo**)
-      (let ([import-req* (vector->list (hashtable-keys import-ht))]
-            [include-req* (vector->list (hashtable-keys include-ht))])
-        ; the first entry is always, if needed, a recompile-info record with recompile information for the entire object file
-        ($pass-time 'pfasl
-          (lambda ()
-            (define (do-final x)
-              (record-case x
-                [(visit-stuff) x (c-print-fasl x op (constant fasl-type-visit) external?-pred omit-rtds?)]
-                [(revisit-stuff) x (c-print-fasl x op (constant fasl-type-revisit) external?-pred omit-rtds?)]
-                [else (c-print-fasl x op (constant fasl-type-visit-revisit) external?-pred omit-rtds?)]))
-            (define (do-final* final*) (for-each do-final final*))
-            (define (do-concat x) (c-print-fasl x op (constant fasl-type-visit-revisit) #f #f))
-            (define omit-concatenate? (compile-omit-concatenate-support))
-            (unless (and omit-concatenate? (null? import-req*) (null? include-req*))
-              (do-concat `(object ,(make-recompile-info import-req* include-req*))))
-            (for-each do-final* lpinfo**)
-            (unless omit-concatenate?
-              (do-concat `(object #t)))
-            (for-each do-final* final**))))))))
+    (let ([combined-rc-info (combine-recompile-info rcinfo**)])
+      ; the first entry is always, if needed, a recompile-info record with recompile information for the entire object file
+      ($pass-time 'pfasl
+        (lambda ()
+          (define (do-final x)
+            (record-case x
+              [(visit-stuff) x (c-print-fasl x op (constant fasl-type-visit) external?-pred omit-rtds?)]
+              [(revisit-stuff) x (c-print-fasl x op (constant fasl-type-revisit) external?-pred omit-rtds?)]
+              [else (c-print-fasl x op (constant fasl-type-visit-revisit) external?-pred omit-rtds?)]))
+          (define (do-final* final*) (for-each do-final final*))
+          (define (do-concat x) (c-print-fasl x op (constant fasl-type-visit-revisit) #f #f))
+          (define omit-concatenate? (compile-omit-concatenate-support))
+          (unless (and omit-concatenate? combined-rc-info)
+            (do-concat `(object ,combined-rc-info)))
+          (for-each do-final* lpinfo**)
+          (unless omit-concatenate?
+            (do-concat `(object #t)))
+          (for-each do-final* final**))))))
 
 (define (new-extension new-ext fn)
   (let ([old-ext (path-extension fn)])
@@ -2157,12 +2174,15 @@
            (do-compile-to-port))])))
 
 (let ()
-  (define (in&out in)
-    (let ([ext (path-extension in)])
-      (cond
-        [(string=? ext "") (values (format "~a.ss" in) (format "~a.so" in))]
-        [(string=? ext "so") (values in (format "~a.so" in))]
-        [else (values in (format "~a.so" (path-root in)))])))
+  (define in&out
+    (case-lambda
+     [(in) (in&out in "so")]
+     [(in out-ext)
+      (let ([ext (path-extension in)])
+        (cond
+         [(string=? ext "") (values (format "~a.ss" in) (format "~a.~a" in out-ext))]
+         [(string=? ext out-ext) (values in (format "~a.~a" in out-ext))]
+         [else (values in (format "~a.~a" (path-root in) out-ext))]))]))
 
   (define (do-compile-to-file who out hostout machine sfd do-read)
     (with-object-file who out
@@ -2176,28 +2196,27 @@
                     (compile-file-help op hostop wpoop source-table machine sfd do-read out #f #f))))))))))
 
   (define (do-expand-to-file who out _hostout machine sfd do-read)
-    (with-object-file who out
-      (lambda (wpoop)
-        ;; TODO - deal with new constraint that rcinfo needs to be at front of fasl file
-        ;;      - Option 1
-        ;;        1. lift out the code from compile-file-help2 that does this
-        ;;        2. pass in some what-to-do-with-the-x1-form procedure to compile-file-help
-        ;;           - normal case will do compile-file-help1
-        ;;           - expand-to-file will delve into the Outer just far enough
-        ;;             to find the rcinfo and will call helpers in the code lifted
-        ;;             from compile-file-help2
-        ;;        3. figure out how to get the rcinfo to the front of the file:
-        ;;           - could make a second pass to concatenate files, but have to deal w/ tmp file
-        ;;           - could defer fasl-write to wpoop until the end, just accumulating everything
-        ;;             the way we're already accumulating the lpinfo** and final** in core already
-        ;;              - would harvest rcinfo at the end
-        ;;           - could fasl-write to a bytevector port and write real file at end
-        ;;              - would accumulate rcinfo along the way
-        ;;      - Option 2
-        ;;        - expose something internally that can delve into Outer to find the
-        ;;          recompile info
-        ;;        - but this is messed up because we'd still have to read the entire fasl file
-        (compile-file-help #f #f wpoop #f machine sfd do-read out))))
+    (parameterize ([generate-wpo-files #t])
+      ;; TODO currently leaving wpo file intact and generating a ".sx" file that respects the new
+      ;;      rcinfo-as-first-fasl-form requirement
+      (with-wpo-file who out
+        (lambda (wpoop)
+          (let ([rcinfo** (compile-file-help #f #f wpoop #f machine sfd do-read out)])
+            (close-port wpoop)
+            (with-object-file who out
+              (lambda (op)
+                (emit-header op (constant scheme-version) (constant machine-type))
+                (c-print-fasl `(object ,(combine-recompile-info rcinfo**)) op (constant fasl-type-visit-revisit))
+                (c-print-fasl `(object #t) op (constant fasl-type-visit-revisit))
+                ;; TODO don't we need to skip header when copying wpoop?
+                (let* ([ip (open-file-input-port (port-name wpoop))]
+                       [bufsiz (file-buffer-size)]
+                       [buf (make-bytevector bufsiz)])
+                  (let loop ()
+                    (let ([n (get-bytevector-n! ip buf 0 bufsiz)])
+                      (unless (eof-object? n)
+                        (put-bytevector op buf 0 n)
+                        (loop))))))))))))
 
   (define (do-file who in out hostout machine r6rs? operation handler)
     (unless (string? in) ($oops who "~s is not a string" in))
@@ -2424,7 +2443,7 @@
       [(in out) (do-expand-file who in out #f)]
       [(in)
        (unless (string? in) ($oops who "~s is not a string" in))
-       (let-values ([(in out) (in&out in)])
+       (let-values ([(in out) (in&out in "sx")])
          (do-expand-file who in out #f))]))
 
   (set-who! expand-library
@@ -2432,6 +2451,6 @@
       [(in out) (do-expand-file who in out #t)]
       [(in)
        (unless (string? in) ($oops who "~s is not a string" in))
-       (let-values ([(in out) (in&out in)])
+       (let-values ([(in out) (in&out in "se")])
          (do-expand-file who in out #t))])))
 );let
