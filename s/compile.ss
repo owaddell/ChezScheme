@@ -2202,21 +2202,22 @@
       (with-wpo-file who out
         (lambda (wpoop)
           (let ([rcinfo** (compile-file-help #f #f wpoop #f machine sfd do-read out)])
-            (close-port wpoop)
-            (with-object-file who out
-              (lambda (op)
-                (emit-header op (constant scheme-version) (constant machine-type))
-                (c-print-fasl `(object ,(combine-recompile-info rcinfo**)) op (constant fasl-type-visit-revisit))
-                (c-print-fasl `(object #t) op (constant fasl-type-visit-revisit))
-                ;; TODO don't we need to skip header when copying wpoop?
-                (let* ([ip (open-file-input-port (port-name wpoop))]
-                       [bufsiz (file-buffer-size)]
-                       [buf (make-bytevector bufsiz)])
-                  (let loop ()
-                    (let ([n (get-bytevector-n! ip buf 0 bufsiz)])
-                      (unless (eof-object? n)
-                        (put-bytevector op buf 0 n)
-                        (loop))))))))))))
+            (when (getenv "SX")
+              (close-port wpoop)
+              (with-object-file who out
+                (lambda (op)
+                  (emit-header op (constant scheme-version) (constant machine-type))
+                  (c-print-fasl `(object ,(combine-recompile-info rcinfo**)) op (constant fasl-type-visit-revisit) #f #f)
+                  (c-print-fasl `(object #t) op (constant fasl-type-visit-revisit) #f #f)
+                  ;; TODO don't we need to skip header when copying wpoop?
+                  (let* ([ip (open-file-input-port (port-name wpoop))]
+                         [bufsiz (file-buffer-size)]
+                         [buf (make-bytevector bufsiz)])
+                    (let loop ()
+                      (let ([n (get-bytevector-n! ip buf 0 bufsiz)])
+                        (unless (eof-object? n)
+                          (put-bytevector op buf 0 n)
+                          (loop)))))))))))))
 
   (define (do-file who in out hostout machine r6rs? operation handler)
     (unless (string? in) ($oops who "~s is not a string" in))
