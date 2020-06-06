@@ -4960,14 +4960,23 @@
         (lambda (src-path obj-path)
           (parameterize ([source-directories (cons (path-parent src-path) (source-directories))])
             ((compile-library-handler) src-path obj-path))
-          (cond
-            [(search-loaded-libraries path) =>
-             (lambda (found-uid)
-               (verify-version who path version-ref found-uid obj-path src-path)
-               (load-deps found-uid)
-               (verify-uid found-uid src-path)
-               found-uid)]
-            [else ($oops who "compiling ~a did not define library ~s" src-path path)])))
+          ;; TODO looks like we assume that compilation side-effects loaded
+          ;;      libraries during expansion, but if we're reusing expanded .sx
+          ;;      we need to load something; guessing $load-library might work
+          (let retry ([may-retry? #t])
+            (cond
+             [(search-loaded-libraries path) =>
+              (lambda (found-uid)
+                (verify-version who path version-ref found-uid obj-path src-path)
+                (load-deps found-uid)
+                (verify-uid found-uid src-path)
+                found-uid)]
+             [may-retry?
+              ;; TODO how do we avoid doing this when not in the .sx reuse case?
+              (with-message (format "compiling ~a did not define library ~s, so loading ~s" src-path path obj-path)
+                ($load-library obj-path (if ct? 'visit 'revisit) importer-path))
+              (retry #f)]
+             [else ($oops who "compiling ~a did not define library ~s" src-path path)]))))
       (define do-recompile-or-load-library
         (lambda (src-path obj-path)
           (let ([compiled? #f])
