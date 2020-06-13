@@ -4973,10 +4973,10 @@
                 found-uid)]
              [may-retry?
               ;; TODO how do we avoid doing this when not in the .sx reuse case?
-              (with-message (format "compiling ~a did not define library ~s, so loading ~s" src-path path obj-path)
+              (with-message (format "CASE 1: compiling ~a did not define library ~s, so loading ~s" src-path path obj-path)
                 ($load-library obj-path (if ct? 'visit 'revisit) importer-path))
               (retry #f)]
-             [else ($oops who "compiling ~a did not define library ~s" src-path path)]))))
+             [else ($oops who "HERE 1 compiling ~a did not define library ~s" src-path path)]))))
       (define do-recompile-or-load-library
         (lambda (src-path obj-path)
           (let ([compiled? #f])
@@ -4987,20 +4987,28 @@
                                  (clh src-path obj-path)
                                  (set! compiled? #t)))])
               (maybe-compile-library src-path obj-path)
+              ;; TODO do we need some of the retry sauce from do-compile-library?
               (unless compiled?
                 (with-message (format "no need to recompile, so loading ~s" obj-path)
                   ($load-library obj-path (if ct? 'visit 'revisit) importer-path))))
+          (let retry ([may-retry? #t])
             (cond
-              [(search-loaded-libraries path) =>
-               (lambda (found-uid)
-                 (verify-version who path version-ref found-uid obj-path src-path)
-                 (load-deps found-uid)
-                 (verify-uid found-uid src-path)
-                 found-uid)]
-              [else
-                (if compiled?
-                    ($oops who "compiling ~a did not define library ~s" src-path path)
-                    ($oops who "loading ~a did not define library ~s" obj-path path))]))))
+             [(search-loaded-libraries path) =>
+              (lambda (found-uid)
+                (verify-version who path version-ref found-uid obj-path src-path)
+                (load-deps found-uid)
+                (verify-uid found-uid src-path)
+                found-uid)]
+             [may-retry?
+              ;; TODO how do we avoid doing this when not in the .sx reuse case?
+              ;; TODO remove CASE 1 and CASE 2 noise
+              (with-message (format "CASE 2: compiling ~a did not define library ~s, so loading ~s" src-path path obj-path)
+                ($load-library obj-path (if ct? 'visit 'revisit) importer-path))
+              (retry #f)]
+             [else
+              (if compiled?                 
+                  ($oops who "HERE 2 compiling ~a did not define library ~s" src-path path)
+                  ($oops who "HERE 2 loading ~a did not define library ~s" obj-path path))])))))
       (define do-load-library-src-or-obj
         (lambda (src-path obj-path)
           (define (load-source)
