@@ -374,6 +374,18 @@
        (lambda (log!)
          (log! context val ...))])]))
 
+;; TODO look for existing mechanism for getting source
+;; TODO recursion here based on syntax-object record-writer
+(define (get-ae x)
+  (if #t ;; TODO make this conditional on whether we're dumping source info?
+      (cond
+       [(syntax-object? x) (get-ae (syntax-object-expression x))]
+       [(annotation? x) x]
+       [else
+        ;; TODO chi-body may get an unwrapped outer-form
+        no-source])
+      no-source))
+
 ;;; hooks to nonportable run-time helpers
 
 (include "types.ss")
@@ -2135,7 +2147,7 @@
                                      [require-invoke (library-collector #t)]
                                      [require-visit (library-collector #f)])
                            (let-values ([(code* iface-vector)
-                                         (chi-top-module orig r top-ribcage new-ribcage ctem rtem meta? id forms)])
+                                         (chi-top-module ae orig r top-ribcage new-ribcage ctem rtem meta? id forms)])
                              (let-values ([(label bound-id)
                                            (top-id-bound-label (id-sym-name id)
                                              (wrap-marks (syntax-object-wrap id))
@@ -2169,7 +2181,7 @@
                                (syntax-error orig "invalid definition in immutable environment"))
                              (extend-ribcage-barrier! ribcage tid)
                              (cons (bodit-code
-                                     (chi-top-library orig library-path library-version r top-ribcage ribcage
+                                     (chi-top-library ae orig library-path library-version r top-ribcage ribcage
                                        ctem rtem uid tid forms outfn))
                                bf*))))
                        #f label*)]
@@ -2672,7 +2684,7 @@
  ;  - local libraries
  ;  - use hash table for large, complete ribcages
  ;    - do check-module-exports while building table
-  (lambda (orig library-path library-version r top-ribcage ribcage ctem rtem library-uid template-id forms outfn)
+  (lambda (ae orig library-path library-version r top-ribcage ribcage ctem rtem library-uid template-id forms outfn)
     (fluid-let ([require-import (library-collector #f)]
                 [require-include (include-collector)]
                 [require-invoke (library-collector #t)]
@@ -2736,7 +2748,7 @@
                             (make-rtdesc invoke-req* #t
                               (top-level-eval-hook
                                 (build-lambda/lift-barrier no-source '()
-                                  (build-library-body no-source dl* db* dv* de*
+                                  (build-library-body ae dl* db* dv* de*
                                     (build-sequence no-source `(,@inits ,(build-void)))))))))
 
                        ; must be after last reference to r
@@ -2935,7 +2947,7 @@
                   [else (process-bindings mb* r dv* de*)]))))))))
 
 (define chi-top-module
-  (lambda (orig r top-ribcage ribcage ctem rtem meta? id forms)
+  (lambda (ae orig r top-ribcage ribcage ctem rtem meta? id forms)
     (let-values ([(mb* inits exports iface-vector chexports label*)
                   (chi-external* ribcage orig
                     (map (lambda (d) (make-frob d meta?)) forms)
@@ -2980,7 +2992,7 @@
                           vcode*))))
                   (rt-eval/residualize rtem
                     (lambda ()
-                      (build-top-module no-source dt* dv* de*
+                      (build-top-module ae dt* dv* de*
                         (build-sequence no-source
                           (append inits (list (build-void)))))))))
               iface-vector)
@@ -3823,7 +3835,7 @@
          ; other errors that might explain why exports are actually missing
           (chexports)
           (for-each kill-local-label! label*)
-          (build-body no-source
+          (build-body (get-ae outer-form)
             (reverse vars) vals
             (build-sequence no-source exprs)))))))
 
@@ -6128,8 +6140,6 @@
               [(lookup-pattern-variable (id->label e empty-wrap) r) =>
                (lambda (var.lev)
                  (let-values ([(var maps) (gen-ref e src (car var.lev) (cdr var.lev) maps)])
-                   (when (getenv "HACK")
-                     (printf "gen-syntax id = ~s var = ~s\n" e var))
                    (values `(ref ,var ,e) maps)))]
               [(ellipsis? e) (syntax-error src "misplaced ellipsis in syntax form")]
               [else (values `(quote ,e) maps)])
@@ -6274,31 +6284,10 @@
                `(quote #&,(cadr xnew))))
           (else `(box ,xnew)))))
 
-    (define (get-source x) ;; TODO probably a better way to get source, maybe already existing procedure?
-      (if #t ;; TODO make this conditional on whether we're dumping source info
-          (cond
-           [(eq? x 'TODO_CHICKENED_OUT)
-            ;; TODO gave up slogging through the map-env stuff
-            ;;      we may be able to fix gen-ref so it builds map env that contains what we need
-            ;;      but first, lets see if this is even remotely useful as is
-            no-source]
-           [(syntax-object? x)
-            (let ([a (syntax-object-expression x)])
-              (if (annotation? a)
-                  (begin
-                    (when (getenv "HACK")
-                      (printf "regen preserving source for ~s\n" x))
-                    a)
-                  no-source))]
-           [else
-            (printf "APPARENTLY DID NOT UNDERSTAND CODE, got ~s\n" x)
-            no-source])
-          no-source))
-
     (define regen
       (lambda (x)
         (case (car x)
-          ((ref) (build-lexical-reference (get-source (caddr x)) (cadr x)))
+          ((ref) (build-lexical-reference (get-ae (caddr x)) (cadr x)))
           ((primitive) (build-primref 3 (cadr x)))
           ((quote) (build-data no-source (cadr x)))
           ((lambda) (build-lambda no-source (cadr x) (regen (caddr x))))
