@@ -317,6 +317,40 @@ products:
               (free-id-union (cdr ls1) ls2)
               (cons (car ls1) (free-id-union (cdr ls1) ls2))))))
 
+  ;; TODO is "declare" a loaded or useful name?
+  (set! $trans-declare
+    (lambda (x)
+      (define src x)
+      (lambda (env)
+        (syntax-case x ()
+          [(_ (interface iname) var ...)
+           (and (eq? 'interface (datum interface)) ;; TODO sort out aux keyword issue
+                (andmap identifier? #'(iname var ...)))
+           (let ([x (unwrap-diinfo (env #'iname))])
+             (unless ($diinfo? x)
+               (syntax-error #'iname "declare: unrecognized interface"))
+             ;; TODO check whether we've already opened an interface for var that has iname as parent
+             ;;      and omit define-property if so? (maybe abstract a $trans-declaration helper for use
+             ;;      here and in $trans-define-interface)
+             (let* ([iface-rtd ($diinfo-rtd x)]
+                    [iface-rtd-uid (record-type-uid iface-rtd)])
+               ;; TODO env value should support more than interfaces
+               (with-syntax ([(resolved-iface ...) (generate-temporaries #'(var ...))]
+                             [iface-rtd-uid (datum->syntax #'iname iface-rtd-uid)]
+                             [(props ...)
+                              (map (lambda (var) (or (env var #'declare) '()))
+                                #'(var ...))])
+                 #`(begin
+                     (define resolved-iface
+                       (or (and (record? var)
+                                ;; (unassigned-variable? var) ;; TODO
+                                (#3%$query-interface '#,iface-rtd var))
+                           (syntax-error #'var "declaration of interface " #,(symbol->string (datum iname)) " is not compatible with")))
+                     ...
+                     (define-property var declare
+                       (cons (cons #'iface-rtd-uid #'resolved-iface) #'props))
+                     ...))))]))))
+
   (set! $trans-define-interface
     (lambda (x)
       (define src x)
@@ -373,21 +407,22 @@ products:
                       (when (free-id-member (minfo-mname minfo) parent-mnames)
                         (syntax-error (minfo-mname minfo) "conflict with inherited interface method"))))
                   %minfos)
-                (let ([iface-rtd
-                       ($make-record-type-descriptor
-                         #!base-rtd
-                         (datum iname)
-                         parent-iface-rtd
-                         #f #f #f
-                         (vector-map
-                           (lambda (x) `(immutable ,(syntax->datum (minfo-mname x))))
-                           (list->vector %minfos))
-                         'define-interface)])
+                (let* ([iface-rtd
+                        ($make-record-type-descriptor
+                          #!base-rtd
+                          (datum iname)
+                          parent-iface-rtd
+                          #f #f #f
+                          (vector-map
+                            (lambda (x) `(immutable ,(syntax->datum (minfo-mname x))))
+                            (list->vector %minfos))
+                          'define-interface)]
+                       [new-methods
+                        (let ([ls (enumerate (csv7:record-type-field-names iface-rtd))])
+                          (list-tail ls (- (length ls) (length %minfos))))])
                   (with-syntax ([((generic-name (generic-formals generic-flat-formals generic-index) ...) ...)
-                                 (build-generic
-                                   %minfos
-                                   (let ([ls (enumerate (csv7:record-type-field-names iface-rtd))])
-                                     (list-tail ls (- (length ls) (length %minfos)))))]
+                                 (build-generic %minfos new-methods)]
+                                [(generic-proc ...) (generate-temporaries new-methods)]
                                 [opt3 (= (optimize-level) 3)])
                     (with-syntax ([((method-accessor ...) ...) (map generate-temporaries #'((generic-index ...) ...))])
                       #`(begin
@@ -402,14 +437,43 @@ products:
                           (define #,pred-name
                             (lambda (x)
                               (and (record? x) (#3%$query-interface '#,iface-rtd x) #t)))
-                          (define generic-name
-                            (let ([who 'generic-name]) ; can't ref generic-name pattern vble inside ... below
-                              (define method-accessor (#3%csv7:record-field-accessor '#,iface-rtd generic-index))
-                              ...
-                              (case-lambda
-                                [(ego . generic-formals)
-                                 ((method-accessor (qi! who ego)) ego . generic-flat-formals)]
-                                ...)))
+                          (define method-accessor (#3%csv7:record-field-accessor '#,iface-rtd generic-index))
+                          ... ...
+                          ;; TODO move transformer out of line
+                          (module ((generic-name generic-proc))
+                            (define-syntax (generic-name x)
+                              (define (compatible? open-id rtd)
+                                (and (record-type-descriptor? rtd)
+                                     (or (eq? open-id (record-type-uid rtd))
+                                         (let ([parent (record-type-parent rtd)])
+                                           (and (not (eq? parent #!base-rtd))
+                                                (compatible? open-id parent))))))
+                              (syntax-case x ()
+                                [(_ ego arg (... ...))
+                                 (identifier? #'ego)
+                                 (lambda (env)
+                                   (let ([hit (assp (lambda (open-id) (compatible? open-id '#,iface-rtd))
+                                                ;; TODO is syntax->list paranoid?
+                                                (syntax->list (or (env #'ego #'declare) '())))])
+                                     (or (and hit
+                                              (with-syntax ([resolved-iface (cdr hit)])
+                                                (syntax-case #'(arg (... ...)) ()
+                                                  [generic-formals
+                                                   #'((method-accessor resolved-iface) ego . generic-flat-formals)]
+                                                  ...
+                                                  [other #f])))
+                                         #'(generic-proc ego arg (... ...)))))]
+                                [(_ arg (... ...)) #'(generic-proc arg (... ...))]
+                                [var (identifier? #'var) #'generic-proc]))
+                            (define generic-proc
+                              (let () ;; use generic-name as procedure name
+                                (define generic-name
+                                  (let ([who 'generic-name]) ; can't ref generic-name pattern vble inside ... below
+                                    (case-lambda
+                                     [(ego . generic-formals)
+                                      ((method-accessor (qi! who ego)) ego . generic-flat-formals)]
+                                     ...)))
+                                generic-name)))
                           ...))))))))
       (syntax-case x ()
         [(_ (name pred-name) clause ...)
@@ -461,20 +525,14 @@ products:
                                             (if (free-identifier=? #'generic-name iface-mname)
                                                 #'stuff
                                                 (loop (cdr x*)))])))
-                                     #'(iface-mname ...)))]
-                             [opt3 (= (optimize-level) 3)])
+                                     #'(iface-mname ...)))])
                  #`(begin
                      (define obj obj-expr)
-                     (define iface 
-                       (or (and (or opt3 (record? obj)) (#3%$query-interface '#,iface-rtd obj))
-                           (errorf 'iface-name "not implemented by ~s" obj)))
+                     (declare (interface iface-name) obj)
                      (define local-mname
-                       (let ()
-                         (define method ((#3%csv7:record-field-accessor '#,iface-rtd generic-index) iface))
-                         ...
+                       (let-syntax ([handoff (identifier-syntax iface-mname)]) ;; work around ...
                          (case-lambda
-                           [generic-formals (method obj . generic-flat-formals)]
-                           ...)))
+                          [generic-formals (handoff obj . generic-flat-formals)] ...)))
                      ...)))))])))
 
   (set! $trans-define-record-type
@@ -1291,6 +1349,7 @@ products:
 (define-syntax public (lambda (x) (syntax-error x "misplaced aux keyword")))
 (define-syntax sealed (lambda (x) (syntax-error x "misplaced aux keyword")))
 
+(define-syntax declare (lambda (x) ($trans-declare x)))
 (define-syntax define-interface (lambda (x) ($trans-define-interface x)))
 (define-syntax open-interface (lambda (x) ($trans-open-interface x)))
 (define-syntax define-record-type (lambda (x) ($trans-define-record-type x)))

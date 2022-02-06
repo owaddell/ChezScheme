@@ -1041,6 +1041,7 @@
   (critical-section [flags])
   (datum [flags])
   (define-ftype [flags])
+  (declare [flags])
   (define-interface [flags])
   (define-property [flags])
   (define-record [flags])
@@ -2279,6 +2280,7 @@
   ($track-dynamic-closure-counts [flags])      ; added for closure instrumentation
   ($track-static-closure-counts [flags alloc]) ; added for closure instrumentation
   ($trans-define-ftype [flags])
+  ($trans-declare [flags])
   ($trans-define-interface [flags])
   ($trans-define-record [flags])
   ($trans-define-record-type [flags])
