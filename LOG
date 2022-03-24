@@ -2269,3 +2269,7 @@
 - consolidate the $thread-check code in misc.ms and thread.ms, keeping
   the thread.ms version of the code since it is more recent
     mats/misc.ms mats/thread-check.ss mats/thread.ms
+- use simpler get-string-all in fresh-line mats where the expected result
+  from block-read relied on the input-port's buffer size
+    mats/6.ms mats/patch-interpret-0-f-f-f mats/patch-interpret-0-f-t-f
+    mats/patch-interpret-3-f-f-f mats/patch-interpret-3-f-t-f
