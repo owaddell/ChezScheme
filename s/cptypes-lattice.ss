@@ -521,7 +521,8 @@
       [maybe-sub-symbol (cons false-rec maybe-symbol-pred)]
 
       [fixnum 'fixnum]
-      [(sub-fixnum bit length sub-length ufixnum sub-ufixnum pfixnum index sub-index u8 s8 u8/s8) '(bottom . fixnum)]
+      [length 'length]
+      [(sub-fixnum bit sub-length ufixnum sub-ufixnum pfixnum index sub-index u8 s8 u8/s8) '(bottom . fixnum)]
       [maybe-fixnum maybe-fixnum-pred]
       [maybe-ufixnum (cons false-rec maybe-fixnum-pred)]
       [(eof/length eof/u8) (cons eof-rec eof/fixnum-pred)]
@@ -713,14 +714,24 @@
           [(eq? y 'exact-integer) 'exact-integer]
           [(eq? x 'exact-integer) 'exact-integer]
           [(eq? y 'fixnum)
-           (and (check-constant-is? x target-fixnum?)
+           (and (or (eq? x 'length) (check-constant-is? x target-fixnum?))
                 'fixnum)]
+          [(eq? y 'length)
+           (if (check-constant-is? x (lambda (n) (and (target-fixnum? n) (>= n 0))))
+               y
+               (and (or (eq? x 'fixnum) (check-constant-is? x target-fixnum?))
+                    'fixnum))]
           [(eq? y 'bignum)
            (and (check-constant-is? x target-bignum?)
                 'bignum)]
           [(eq? x 'fixnum)
-           (and (check-constant-is? y target-fixnum?)
+           (and (check-constant-is? y target-fixnum?) ;; checked (eq? y 'length) earlier
                 'fixnum)]
+          [(eq? x 'length)
+           (if (check-constant-is? y (lambda (n) (and (target-fixnum? n) (>= n 0))))
+               x
+               (and (check-constant-is? y target-fixnum?) ;; checked (eq? y 'fixnum) earlier
+                    'fixnum))]
           [(eq? x 'bignum)
            (and (check-constant-is? y target-bignum?)
                 'bignum)]
@@ -903,19 +914,26 @@
                [(check-constant-eqv? y dx)
                 #t]
                [(target-fixnum? dx)
-                (eq? y 'fixnum)]
+                (or (eq? y 'fixnum)
+                    (and (eq? y 'length) (>= dx 0)))]
                [else #;(target-bignum? dx)
                 (eq? y 'bignum)])
              x
              'bottom))]
       [else
-       (if (cond
-		     [(eq? x 'fixnum)
-              (check-constant-is? y target-fixnum?)]
+       (or (cond
+             [(eq? x 'fixnum)
+              (and (or (eq? y 'length)
+                       (check-constant-is? y target-fixnum?))
+                   y)]
+             [(eq? x 'length)
+              (cond
+               [(check-constant-is? y (lambda (n) (and (target-fixnum? n) (>= n 0)))) y]
+               [(eq? y 'fixnum) x]
+               [else #f])]
              [else #;(eq? x 'bignum)
-  		      (check-constant-is? y target-bignum?)])
-          y
-          'bottom)]))
+              (and (check-constant-is? y target-bignum?) y)])
+           'bottom)]))
 
   (define (intersect/record x y)
     (cond
@@ -1050,7 +1068,7 @@
       [(eq? y 'exact-integer) 'bottom]
       [(eq? x 'exact-integer)
        (case y
-         [(fixnum) 'bignum]
+         [(fixnum) 'bignum] ;; let 'length fall through to exact-integer
          [(bignum) 'fixnum]
          [else 'exact-integer])]
       [(Lsrc? x)
@@ -1059,7 +1077,8 @@
                [(Lsrc? y)
                 (eqv? dx (constant-value y))]
                [(target-fixnum? dx)
-                (eq? y 'fixnum)]
+                (or (eq? y 'fixnum)
+                    (and (eq? y 'length) (>= dx 0)))]
                [else #;(target-bignum? dx)
                 (eq? y 'bignum)])
             'bottom
@@ -1111,7 +1130,7 @@
            (pred-singleton? x))
        'singleton]
       [(or (check-constant-is? x exact-integer?)
-           (memq x '(fixnum bignum exact-integer)))
+           (memq x '(fixnum bignum exact-integer length)))
        'exact-integer]
       [(or (check-constant-is? x number?)
            (check-constant-is? x symbol?)

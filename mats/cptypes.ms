@@ -947,6 +947,48 @@
                    (flonum? (abs x))))
     '(lambda (x) (when (flonum? x)
                    #t)))
+  (cptypes-equivalent-expansion?
+   '(lambda (x)
+      (let ([n (vector-length x)])
+        (make-vector n
+          (make-string n))))
+   '(lambda (x)
+      (let ([n (vector-length x)])
+        (#3%make-vector n
+          (#3%make-string n)))))
+  (cptypes-equivalent-expansion?
+    '(lambda (v)
+       (let ([n (vector-length v)])
+         (make-fxvector n n)))
+    '(lambda (v)
+       (let ([n (vector-length v)])
+         (#3%make-fxvector n n))))
+  (cptypes-equivalent-expansion?
+   '(lambda (x) (eqv? (vector-length x) -1))
+   '(lambda (x) (vector-length x) #f))
+  (cptypes-equivalent-expansion?
+   '(lambda (p e1)
+      (let ([n (e1)])
+        (get-string-n p n)
+        (make-vector n)))
+   '(lambda (p e1)
+      (let ([n (e1)])
+        (get-string-n p n)
+        (#3%make-vector n))))
+  (cptypes-equivalent-expansion?
+   '(lambda (s v)
+      (let ([n (vector-length v)])
+        (when (string? s)
+          (write (string-length s))
+          (string-truncate! s n)
+          (string? s))))
+   (let ([level (max 2 (optimize-level))]) ;; not 3 unless o=3
+     `(lambda (s v)
+        (let ([n (vector-length v)])
+          (when (string? s)
+            (write (#3%string-length s))
+            (($primitive ,level string-truncate!) s n)
+            #t)))))
 )
 
 (mat cptypes-rest-argument
@@ -1496,6 +1538,12 @@
   (cptypes-equivalent-expansion?
     '(lambda (x) (unless (fixnum? x) (when (real? x) (unless (fixnum? x) x))))
     '(lambda (x) (unless (fixnum? x) (when (real? x) x))))
+  (cptypes-equivalent-expansion?
+   '(lambda (x) (vector? (make-vector 3 x)))
+   '(lambda (x) #t))
+  (cptypes-equivalent-expansion?
+   '(lambda (x) (vector? (make-vector (vector-length x) x)))
+   '(lambda (x) (vector-length x) #t))
 )
 
 (mat bitwise
