@@ -525,7 +525,8 @@
       [(sub-fixnum bit sub-length ufixnum sub-ufixnum pfixnum index sub-index u8 s8 u8/s8) '(bottom . fixnum)]
       [maybe-fixnum maybe-fixnum-pred]
       [maybe-ufixnum (cons false-rec maybe-fixnum-pred)]
-      [(eof/length eof/u8) (cons eof-rec eof/fixnum-pred)]
+      [eof/length (cons eof-rec eof/length-pred)]
+      [eof/u8(cons eof-rec eof/fixnum-pred)]
       [bignum 'bignum]
       [(exact-integer sint) 'exact-integer]
       [(uint sub-uint nzuint exact-uinteger sub-sint) '(bottom . exact-integer)]
@@ -1463,6 +1464,7 @@
   (define $list-pred (predicate-union null-rec '$list-pair))
   (define maybe-fixnum-pred (maybe 'fixnum))
   (define eof/fixnum-pred (eof/ 'fixnum))
+  (define eof/length-pred (eof/ 'length))
   (define maybe-exact-integer-pred (maybe 'exact-integer))
   (define maybe-flonum-pred (maybe flonum-pred))
   (define integer-pred (predicate-union flinteger-pred 'exact-integer))
