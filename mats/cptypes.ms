@@ -989,6 +989,14 @@
             (write (#3%string-length s))
             (($primitive ,level string-truncate!) s n)
             #t)))))
+  (cptypes-equivalent-expansion?
+   '(lambda (x) (+ x (fx+ x 1)))
+   '(lambda (x) (#3%+ x (fx+ x 1))))
+  (cptypes-equivalent-expansion?
+   '(lambda (v)
+      (immutable-vector-append v (make-vector (vector-length v) #f)))
+   '(lambda (v)
+      (#3%immutable-vector-append v (#3%make-vector (vector-length v) #f))))
 )
 
 (mat cptypes-rest-argument

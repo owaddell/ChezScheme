@@ -1419,11 +1419,16 @@ Notes:
               [else ($oops 'fold-primref "result of inline handler can't be #f")]))
           (fold-primref/next preinfo pr e* ctxt oldtypes plxc))))
 
+  (define (find-error-expression e r)
+    (nanopass-case (Lsrc Expr) e
+      [(ref ,maybe-src ,x) #f]
+      [else (and (predicate-implies? r 'bottom) e)]))
+
   (define (fold-primref/next preinfo pr e* ctxt oldtypes plxc)
     (let-values ([(t e* r* t* t-t* f-t*)
-                  (map-Expr/delayed e* oldtypes plxc)])
+                  (map-Expr/delayed e* oldtypes plxc #t)])
       (cond
-        [(ormap (lambda (e r) (and (predicate-implies? r 'bottom) e)) e* r*)
+        [(ormap find-error-expression e* r*)
          => (lambda (e) (unwrapped-error ctxt e))]
         [(eq? t pred-env-bottom)
          (let ([e* (map ensure-single-value e* r*)])
@@ -1507,7 +1512,7 @@ Notes:
             (list (if (null? r*) null-rec 'pair))
             (cons (car r*) (loop (fx- i 1) (cdr r*))))))
     (let*-values ([(ntypes e* r* t* t-t* f-t*)
-                   (map-Expr/delayed e* oldtypes plxc)])
+                   (map-Expr/delayed e* oldtypes plxc #t)])
       (cond
         [(ormap (lambda (e r) (and (predicate-implies? r 'bottom) e)) e* r*)
          => (lambda (e) (unwrapped-error ctxt e))]
@@ -1548,7 +1553,7 @@ Notes:
 
   (define (fold-call/other preinfo e0 e* ctxt oldtypes plxc)
     (let*-values ([(ntypes e* r* t* t-t* f-t*)
-                   (map-Expr/delayed e* oldtypes plxc)]
+                   (map-Expr/delayed e* oldtypes plxc #t)]
                   [(e0 ret0 types0 t-types0 f-types0 e0-bottom?)
                    (Expr/call e0 'value ntypes oldtypes plxc)])
       (cond
@@ -1559,11 +1564,14 @@ Notes:
          (values `(call ,preinfo ,e0 ,e* ...)
                  (if (preinfo-call-no-return? preinfo) 'bottom ret0) types0 t-types0 f-types0)])))
 
-  (define (map-Expr/delayed e* oldtypes plxc)
+  (define (map-Expr/delayed e* oldtypes plxc call?)
     (define first-pass* (map (lambda (e)
                                (nanopass-case (Lsrc Expr) e
                                  [(case-lambda ,preinfo ,cl* ...)
                                   (cons 'delayed e)]
+                                 [(ref ,maybe-src ,x)
+                                  (guard (and call? (not (prelex-assigned x))))
+                                  (cons 'delayed-ref e)]
                                  [else
                                    (cons 'ready
                                          (call-with-values
@@ -1577,15 +1585,22 @@ Notes:
                                 oldtypes
                                 first-pass*))
     (define second-pass* (map (lambda (e)
-                                (cond
-                                  [(eq? (car e) 'delayed)
-                                   (call-with-values
-                                            (lambda () (Expr (cdr e) 'value fp-types plxc))
-                                            list)]
-                                  [else
-                                   (cdr e)]))
+                                (if (eq? (car e) 'ready)
+                                    (cdr e)
+                                    (call-with-values
+                                      (lambda () (Expr (cdr e) 'value fp-types plxc))
+                                      list)))
                               first-pass*))
-    (define sp-types fp-types) ; since they are only lambdas, they add no new info.
+    (define sp-types
+      (if (not call?)
+          fp-types  ; since they are only lambdas, they add no new info.
+          (let f ([fp first-pass*] [sp second-pass*] [types fp-types])
+            (if (null? fp)
+                types
+                (f (cdr fp) (cdr sp)
+                  (if (eq? (caar fp) 'delayed-ref)
+                      (pred-env-intersect/base types (caddr (car sp)) fp-types)
+                      types))))))
     (define untransposed (if (null? second-pass*)
                              '(() () () () ())
                              (apply map list second-pass*)))
@@ -1823,7 +1838,7 @@ Notes:
        (fold-call/other preinfo e0 e* ctxt types plxc)]
       [(letrec ((,x* ,e*) ...) ,body)
        (let-values ([(ntypes e* r* t* t-t* f-t*)
-                     (map-Expr/delayed e* types plxc)])
+                     (map-Expr/delayed e* types plxc #f)])
          (let ([ntypes/x (fold-left (lambda (t x p) (pred-env-add t x p plxc)) ntypes x* r*)])
            (let*-values ([(body ret n-types/x t-types/x f-types/x)
                          (Expr body ctxt ntypes/x plxc)]
