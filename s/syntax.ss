@@ -536,8 +536,9 @@
   (define build-lambda/lift-barrier
     (lambda (ae vars exp)
       (build-profile ae
-        `(case-lambda ,(make-preinfo-lambda (ae->src ae) #f #f #f (constant code-flag-lift-barrier))
-           ,(build-clause vars exp)))))
+        (let ([src (ae->src ae)])
+          `(case-lambda ,(make-preinfo-lambda src #f #f #f (constant code-flag-lift-barrier))
+             ,(build-clause src vars exp))))))
 
   (define build-case-lambda
     (lambda (ae clauses)
