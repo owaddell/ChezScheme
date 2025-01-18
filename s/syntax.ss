@@ -503,6 +503,7 @@
         e)))
 
 (module (build-lambda build-lambda/lift-barrier build-library-case-lambda build-case-lambda)
+  ;; TODO can we get more precise clause-level source information for case-lambda?
   (define build-clause
     (lambda (src fmls body)
       (define (return fmls iface body)
