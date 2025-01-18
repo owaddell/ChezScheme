@@ -364,6 +364,141 @@
 (let ()
 (define noexpand "noexpand")
 
+(define $source-map ($make-thread-parameter #f))
+
+(define-record-type source-map
+  (nongenerative)
+  (fields
+   (immutable lexical)    ;; prelex -> lexical-info
+   (immutable global)     ;; name -> global-info
+   (immutable primitive)  ;; name -> prim-info
+   (immutable syntax)     ;; name -> syntax-info   ;; TODO maybe this is more like CTE ?
+   (mutable contour))     ;; (contour ...)
+  (protocol
+   (lambda (new)
+     (lambda ()
+       (new (make-eq-hashtable) (make-eq-hashtable) (make-eq-hashtable) (make-eq-hashtable) '())))))
+
+;; TODO where do we want to grab (meta-level)
+;;      - could be per reference / assignment
+;;        e.g., lexical-ref-src*:    ((level . src) ...)
+;;      - may want to post-process as:  ((level . src ...) ...)
+
+(define-record-type lexical-info
+  (nongenerative)
+  (fields (immutable name) (immutable bind-src) (mutable ref-src*) (mutable set-src*))
+  (protocol
+   (lambda (new)
+     (lambda (prelex)
+       (new (prelex-name prelex) (prelex->src prelex) '() '())))))
+
+(define-record-type global-info
+  (nongenerative)
+  (fields (immutable name) (mutable ref-src*) (mutable set-src*))
+  (protocol
+   (lambda (new)
+     (lambda (name)
+       (new name '() '())))))
+
+;; TODO better names? don't want to confuse with make-priminfo elsewhere
+(define-record-type prim-info
+  (nongenerative)
+  (fields (immutable name) (mutable ref-src*))
+  (protocol
+   (lambda (new)
+     (lambda (name)
+       (new name (make-hashtable values fx=))))))
+
+(define-record-type syntax-info
+  (nongenerative)
+  (fields (immutable name) (immutable bind-src) (mutable ref-src*))
+  (protocol
+   (lambda (new)
+     (lambda (name bind-src)
+       (new name bind-src '())))))
+
+(define-record-type contour
+  (nongenerative)
+  (fields (immutable src) (immutable type) (immutable bound*)))
+
+(define (get-or-add-source! sm key get-table make)
+  (let ([cell (eq-hashtable-cell (get-table sm) key #f)])
+    (or (cdr cell)
+        (let ([x (make key)])
+          (set-cdr! cell x)
+          x))))
+
+(define (get-or-add-lexical! sm prelex)
+  (get-or-add-source! sm prelex source-map-lexical make-lexical-info))
+
+(define (get-or-add-global! sm name)
+  (get-or-add-source! sm name source-map-global make-global-info))
+
+(define (add-lexical! src prelex sm get set)
+  (let ([info (get-or-add-lexical! sm prelex)])
+    (set info (cons src (get info)))))
+
+(define (add-lexical-ref! src prelex sm)
+  (add-lexical! src prelex sm lexical-info-ref-src* lexical-info-ref-src*-set!))
+
+(define (add-lexical-set! src prelex sm)
+  (add-lexical! src prelex sm lexical-info-set-src* lexical-info-set-src*-set!))
+
+(define (add-global! src prelex sm get set)
+  (let ([info (get-or-add-global! sm prelex)])
+    (set info (cons src (get info)))))
+
+(define (add-global-ref! src name sm)
+  (add-global! src name sm global-info-ref-src* global-info-ref-src*-set!))
+
+(define (add-global-set! src name sm)
+  (add-global! src name sm global-info-set-src* global-info-set-src*-set!))
+
+(define (add-prim-ref src name sm level)
+  (let ([info (get-or-add-source! sm name source-map-primitive make-prim-info)])
+    (hashtable-update! (prim-info-ref-src* info) level
+      (lambda (prev) (cons src prev))
+      '())))
+
+;; TODO do we want to try to get nesting info?
+(define (add-contour! src type sm bound*)
+  (source-map-contour-set! sm
+    (cons (make-contour src type
+            (map (lambda (prelex) (get-or-add-lexical! sm prelex))
+              bound*))
+      (source-map-contour sm))))
+
+(define (TODO-FIXME x) ;; TODO FIXME
+  (ae->src
+   (if (syntax-object? x)
+       (syntax-object-expression x)
+       x)))
+
+;; TODO reorder the arguments so sm comes first for all of these?
+(define (add-macro-ref! id sm label)
+  (let ([cell (eq-hashtable-cell (source-map-syntax sm) label #f)])
+    (unless (cdr cell)
+      (assert (symbol? label)) ;; built in 
+      (set-cdr! cell (make-syntax-info (syntax->datum id) 'built-in)))
+    (let ([info (cdr cell)])
+      ;; TODO we get a lot of duplicate source here, e.g., swish/ht.ss <ht> we get 44 references to #<source swish/ht.ss[1492:1496]>
+      ;;      maybe we can collapse these using a source table or using a hashtable
+      ;;      --> note hashtable would need to handle case where source is #f or #<source ...>
+      (syntax-info-ref-src*-set! info
+        (cons (TODO-FIXME id)
+          (syntax-info-ref-src* info))))))
+
+(define (add-macro-binding! id sm label)
+  (let ([cell (eq-hashtable-cell (source-map-syntax sm) label #f)])
+    (assert (not (cdr cell))) 
+    (set-cdr! cell (make-syntax-info (syntax->datum id) (TODO-FIXME id)))))
+
+(define-syntax maybe-source!
+  (syntax-rules (=>)
+    [(_ sm => e0 e1 ...)
+     (identifier? #'sm)
+     (cond [($source-map) => (lambda (sm) e0 e1 ...)])]))
+
 (define-syntax maybe-log
   (syntax-rules ()
     [(_ context val ...)
@@ -507,7 +642,7 @@
   (define build-clause
     (lambda (src fmls body)
       (define (return fmls iface body)
-        (maybe-log 'lambda src (map prelex->src fmls) (meta-level)) ;; do we care about iface?
+        (maybe-source! sm => (add-contour! src 'lambda sm fmls))
         (in-context CaseLambdaClause
           `(clause (,fmls ...) ,iface ,body)))
       (let f ((ids fmls) (n 0))
@@ -600,8 +735,8 @@
 (define build-lexical-reference
   (lambda (ae prelex)
     (let ([src (ae->src ae)])
-      (maybe-log 'ref src (prelex->src prelex))
-      (if (prelex-referenced prelex)
+      (maybe-source! sm => (add-lexical-ref! src prelex sm))
+       (if (prelex-referenced prelex)
           (set-prelex-multiply-referenced! prelex #t)
           (set-prelex-referenced! prelex #t))
       (build-profile ae `(ref ,src ,prelex)))))
@@ -609,7 +744,7 @@
 (define build-lexical-assignment
   (lambda (ae var exp)
     (let ([src (ae->src ae)])
-      (maybe-log 'set! src (prelex->src var))
+      (maybe-source! sm => (add-lexical-set! src var sm))
       (set-prelex-assigned! var #t)
       (build-profile ae `(set! ,src ,var ,exp)))))
 
@@ -622,14 +757,18 @@
 
 (define build-primitive-reference
   (lambda (ae name)
-    (maybe-log 'primref (ae->src ae) name (meta-level))
-    (if ($suppress-primitive-inlining)
-        (build-primcall ae 3 '$top-level-value `(quote ,name))
-        (build-profile ae (lookup-primref (fxmax (optimize-level) 2) name)))))
+    (cond
+     [($suppress-primitive-inlining)
+      (maybe-source! sm => (add-global-ref! (ae->src ae) name sm))
+      (build-primcall ae 3 '$top-level-value `(quote ,name))]
+     [else
+      (let ([level (fxmax (optimize-level) 2)])
+        (maybe-source! sm => (add-prim-ref (ae->src ae) name sm level))
+        (build-profile ae (lookup-primref level name)))])))
 
 (define build-primitive-assignment
   (lambda (ae name val)
-    (maybe-log 'primset! (ae->src ae) name (meta-level))
+    (maybe-source! sm => (add-global-set! (ae->src ae) name sm))
     (build-primcall ae 3 '$set-top-level-value! `(quote ,name) val)))
 
 (module (build-global-reference build-global-assignment)
@@ -642,13 +781,13 @@
   (define build-global-reference
     (lambda (ae name safe?)
       (when (eq? (subset-mode) 'system) (unbound-warning (ae->src ae) "reference to" name))
-      (maybe-log 'tl-ref (ae->src ae) name (meta-level))
+      (maybe-source! sm => (add-global-ref! (ae->src ae) name sm))
       (build-primcall ae (if (or safe? (fx= (optimize-level) 3)) 3 2) '$top-level-value `(quote ,name))))
 
   (define build-global-assignment
     (lambda (ae name val)
       (when (eq? (subset-mode) 'system) (unbound-warning (ae->src ae) "assignment to" name))
-      (maybe-log 'tl-set! (ae->src ae) name (meta-level))
+      (maybe-source! sm => (add-global-set! (ae->src ae) name sm))
       (build-primcall ae 3 '$set-top-level-value! `(quote ,name) val))))
 
 (define build-cte-install
@@ -736,7 +875,10 @@
 (define build-primref?
   (lambda (ae level name)
     (let ([pr ($sgetprop name (if (eqv? level 2) '*prim2* '*prim3*) #f)])
-      (and pr (build-profile ae pr)))))
+      (and pr
+           (begin
+             (maybe-source! sm => (add-prim-ref (ae->src ae) name sm level))
+             (build-profile ae pr))))))
 
 (define build-data
   (lambda (ae exp)
@@ -784,7 +926,7 @@
 
 (define build-letrec
   (lambda (ae vars val-exps body-exp)
-    (maybe-log 'letrec (ae->src ae) (map prelex->src vars) (meta-level))
+    (maybe-source! sm => (add-contour! (ae->src ae) 'letrec sm vars))
     (build-profile ae
       (if (null? vars)
           body-exp
@@ -792,7 +934,7 @@
 
 (define build-letrec*
   (lambda (ae vars val-exps body-exp)
-    (maybe-log 'letrec* (ae->src ae) (map prelex->src vars) (meta-level))
+    (maybe-source! sm => (add-contour! (ae->src ae) 'letrec* sm vars))
     (build-profile ae
       (if (null? vars)
           body-exp
@@ -1879,10 +2021,14 @@
       [(pair? e)
        (let ([first (car e)])
          (if (id? first)
-             (let* ([b (lookup (id->label first w) r)]
+             (let* ([label (id->label first w)]
+                    [b (lookup label r)]
                     [type (binding-type b)])
                (case type
                  [(macro macro!)
+                  (maybe-source! sm =>
+                    (parameterize ([print-length 3]) (printf "(~s ...) at ~s\n" type ae))  
+                    (add-macro-ref! first sm label))
                   (syntax-type (chi-macro (binding-value b) e r w ae rib)
                     r empty-wrap ae rib)]
                  [(core) (values type (binding-value b) e w ae)]
@@ -1910,10 +2056,15 @@
       [(annotation? e)
        (syntax-type (annotation-expression e) r w e rib)]
       [(symbol? e)
-       (let* ([b (lookup (id->label e w) r)]
+       (let* ([label (id->label e w)]
+              [b (lookup label r)]
               [type (binding-type b)])
          (case type
            [(macro macro!)
+            ;; TODO need to work harder to preserve source here (see annotation? case above)
+            (maybe-source! sm =>
+              (parameterize ([print-length 3]) (printf "~s at ~s\n" type ae))  
+              (add-macro-ref! e sm label))
             (syntax-type (chi-macro (binding-value b) e r w ae rib)
               r empty-wrap ae rib)]
            [else (values type (binding-value b) e w ae)]))]
@@ -2030,6 +2181,10 @@
                                          (wrap-marks (syntax-object-wrap id))
                                          top-ribcage)])
                            (extend-ribcage! ribcage id label)
+                           (maybe-source! sm =>
+                             ;; TODO save orig id for this to avoid the (wrap id w) above that we'll just undo
+                             (printf "[chi-top define-syntax-form ~s]\n" id) 
+                             (add-macro-binding! id sm label))
                            (unless (eq? (id->label id empty-wrap) label)
                             ; must be an enclosing local-syntax binding for id
                              (syntax-error (source-wrap e w ae)
@@ -3314,6 +3469,10 @@
                           [label (gen-global-label (id-sym-name id))]
                           [exp (not-at-top (meta-chi rhs r w))])
                      (extend-ribcage! ribcage id label)
+                     (maybe-source! sm =>
+                       ;; TODO save orig id for this to avoid the (wrap id w) above that we'll just undo
+                       (printf "[chi-external define-syntax-form ~s]\n" id) 
+                       (add-macro-binding! id sm label))
                      (unless (eq? (id->label id empty-wrap) label)
                       ; must be an enclosing local-syntax binding for id
                        (syntax-error (source-wrap e w ae)
@@ -3915,6 +4074,10 @@
                                   (defer-or-eval-transformer 'define-syntax local-eval-hook
                                     (meta-chi rhs r w))
                                   (fxlognot (meta-level)))])
+                     (maybe-source! sm =>
+                       ;; TODO save orig id for this to avoid the (wrap id w) above that we'll just undo
+                       (printf "[chi-internal define-syntax-form ~s]\n" id) 
+                       (add-macro-binding! id sm label))
                      (record-id! defn-table id label)
                      (extend-ribcage! ribcage id label)
                      (unless (eq? (id->label id empty-wrap) label)
@@ -4550,6 +4713,11 @@
           (let ([labels (map (lambda (id)
                                (make-local-label displaced-lexical-binding (fxlognot (meta-level))))
                           ids)])
+            (maybe-source! sm =>
+              (for-each (lambda (id label)
+                          (printf "[chi-local-syntax ~s]\n" id) 
+                          (add-macro-binding! id sm label))
+                ids labels))
             (let ([new-w (make-binding-wrap ids labels w)])
               (let ([b* (let ([w (if rec? new-w w)])
                          ; chi-body note re: require-invoke applies here too
@@ -6886,14 +7054,48 @@
        (if (and (pair? x) (equal? (car x) noexpand))
            (cadr x)
            (let ((ctem (initial-mode-set (eval-syntax-expanders-when) compiling-a-file))
-                 (rtem (initial-mode-set '(load eval) compiling-a-file)))
+                 (rtem (initial-mode-set '(load eval) compiling-a-file))
+                 (sm (and ($report-source-info)
+                          (or (getprop 'HACK 'sm #f) ;; TODO HACK FIXME
+                              (let ([sm (make-source-map)])
+                                (putprop 'HACK 'sm sm) ;; TODO HACK FIXME
+                                sm)))))
              (let ([x (at-top
                         (parameterize ([meta-level 0])
+                          (parameterize ([$source-map sm])
                           (chi-top* x
                             (env-wrap env)
                             ctem rtem
                             (env-top-ribcage env)
-                            outfn)))])
+                            outfn))))])
+               (when sm
+                 (let ([lexical-info* (hashtable-values (source-map-lexical sm))]
+                       [global-info* (hashtable-values (source-map-global sm))]
+                       [prim-info*
+                        (vector-map
+                         (lambda (pi-orig)
+                           ;; post-process ref-src* to ((optimize-level . src ...) ...)
+                           (let ([pi (make-prim-info (prim-info-name pi-orig))])
+                             (prim-info-ref-src*-set! pi
+                               (vector->list (hashtable-cells (prim-info-ref-src* pi-orig))))
+                             pi))
+                        (hashtable-values (source-map-primitive sm)))])
+                   (maybe-log 'source-map
+                     `((lexical ,lexical-info*)
+                       (global ,global-info*)
+                       (primitive ,prim-info*)
+                       (contour ,(source-map-contour sm))
+                       (syntax ,(hashtable-values (source-map-syntax sm)))
+                       ))
+                   #; ;; HACK BARF
+                   (begin
+                     (printf "stashing data under HACK FIXME property list\n")
+                     (putprop 'HACK 'FIXME ;; TODO FIXME HACK
+                       (cons ;; TODO FIXME just want the high-water mark but current wiring is super broken
+                         `((lexical ,lexical-info*)
+                           (global ,global-info*)
+                           (primitive ,prim-info*))
+                       (getprop 'HACK 'FIXME '()))))))
                (if records? x ($uncprep x)))))))))
 
 (set-who! $require-include
