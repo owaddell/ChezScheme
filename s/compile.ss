@@ -2221,28 +2221,16 @@
                     (handler op hostop wpoop source-table))))))))))
 
   (define (do-expand-to-file who out _hostout machine sfd do-read)
-    (parameterize ([generate-wpo-files #t])
-      ;; TODO currently leaving wpo file intact and generating a ".sx" file that respects the new
-      ;;      rcinfo-as-first-fasl-form requirement
-      (with-wpo-file who out
-        (lambda (wpoop)
-          (let ([rcinfo** (compile-file-help #f #f wpoop #f machine sfd do-read out #f #f #f)])
-            (when (getenv "SX")
-              (close-port wpoop)
-              (with-object-file who out
-                (lambda (op)
-                  (emit-header op (constant scheme-version) (constant machine-type))
-                  (c-print-fasl `(object ,(combine-recompile-info rcinfo**)) op (constant fasl-type-visit-revisit) #f #f)
-                  (c-print-fasl `(object #t) op (constant fasl-type-visit-revisit) #f #f)
-                  ;; TODO don't we need to skip header when copying wpoop?
-                  (let* ([ip (open-file-input-port (port-name wpoop))]
-                         [bufsiz (file-buffer-size)]
-                         [buf (make-bytevector bufsiz)])
-                    (let loop ()
-                      (let ([n (get-bytevector-n! ip buf 0 bufsiz)])
-                        (unless (eof-object? n)
-                          (put-bytevector op buf 0 n)
-                          (loop)))))))))))))
+    ;; Reuse wpo machinery since it handles with-whacked-optimization-locs.
+    (let-values ([(wpoop get-bv) (open-bytevector-output-port)])
+      (let ([rcinfo** (compile-file-help #f #f wpoop #f machine sfd do-read out #f #f #f)])
+        (with-object-file who out
+          (lambda (op)
+            (emit-header op (constant scheme-version) (constant machine-type))
+            ;; The library manager expects complete recompile info after the fasl header.
+            (c-print-fasl `(object ,(combine-recompile-info rcinfo**)) op (constant fasl-type-visit-revisit) #f #f)
+            (c-print-fasl `(object #t) op (constant fasl-type-visit-revisit) #f #f)
+            (put-bytevector op (get-bv)))))))
 
   (define (do-prelude who in out hostout machine operation)
     (unless (string? in) ($oops who "~s is not a string" in))
