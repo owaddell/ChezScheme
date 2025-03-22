@@ -2045,9 +2045,7 @@
                     [type (binding-type b)])
                (case type
                  [(macro macro!)
-                  (maybe-source! sm =>
-                    (parameterize ([print-length 3]) (printf "(~s ...) at ~s\n" type ae))  
-                    (add-macro-ref! first sm label))
+                  (maybe-source! sm => (add-macro-ref! first sm label))
                   (syntax-type (chi-macro (binding-value b) e r w ae rib)
                     r empty-wrap ae rib)]
                  [(core) (values type (binding-value b) e w ae)]
@@ -2081,9 +2079,7 @@
          (case type
            [(macro macro!)
             ;; TODO need to work harder to preserve source here (see annotation? case above)
-            (maybe-source! sm =>
-              (parameterize ([print-length 3]) (printf "~s at ~s\n" type ae))  
-              (add-macro-ref! e sm label))
+            (maybe-source! sm => (add-macro-ref! e sm label))
             (syntax-type (chi-macro (binding-value b) e r w ae rib)
               r empty-wrap ae rib)]
            [else (values type (binding-value b) e w ae)]))]
@@ -4750,9 +4746,7 @@
                                (make-local-label displaced-lexical-binding (fxlognot (meta-level))))
                           ids)])
             (maybe-source! sm =>
-              (for-each (lambda (id label)
-                          (printf "[chi-local-syntax ~s]\n" id) 
-                          (add-macro-binding! id sm label))
+              (for-each (lambda (id label) (add-macro-binding! id sm label))
                 ids labels))
             (let ([new-w (make-binding-wrap ids labels w)])
               (let ([b* (let ([w (if rec? new-w w)])
