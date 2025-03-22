@@ -373,11 +373,12 @@
    (immutable global)     ;; name -> global-info
    (immutable primitive)  ;; name -> prim-info
    (immutable syntax)     ;; name -> syntax-info   ;; TODO maybe this is more like CTE ?
-   (mutable contour))     ;; (contour ...)
+   (mutable realm*)       ;; (realm ...)
+   (mutable contour*))    ;; (contour ...)
   (protocol
    (lambda (new)
      (lambda ()
-       (new (make-eq-hashtable) (make-eq-hashtable) (make-eq-hashtable) (make-eq-hashtable) '())))))
+       (new (make-eq-hashtable) (make-eq-hashtable) (make-eq-hashtable) (make-eq-hashtable) '() '())))))
 
 (define-record-type lexical-info
   (nongenerative)
@@ -421,6 +422,17 @@
      (lambda (src type bound*)
        (new src type (meta-level) bound*)))))
 
+(define-record-type realm
+  (nongenerative)
+  (fields
+   (immutable src) (immutable name) (immutable path) (immutable version) (immutable meta-level) (immutable export*) (immutable import*))
+  (protocol
+   (lambda (new)
+     (lambda (src name path version export* import*)
+       ;; path is () for module, non-empty for library
+       ;; TODO can we get imports for modules when explicit?
+       (new src name path version (meta-level) export* import*)))))
+
 (define (get-or-add-source! sm key get-table make)
   (let ([cell (eq-hashtable-cell (get-table sm) key #f)])
     (or (cdr cell)
@@ -460,13 +472,20 @@
       (lambda (prev) (cons src prev))
       '())))
 
+(define (extend-source-map! sm get-field set-field! item)
+  (set-field! sm (cons item (get-field sm))))
+
 ;; TODO do we want to try to get nesting info?
+;; TODO some letrec* contours are from build-library-body; is there any help / harm in that?
 (define (add-contour! src type sm bound*)
-  (source-map-contour-set! sm
-    (cons (make-contour src type
-            (map (lambda (prelex) (get-or-add-lexical! sm prelex))
-              bound*))
-      (source-map-contour sm))))
+  (extend-source-map! sm source-map-contour* source-map-contour*-set!
+    (make-contour src type
+      (map (lambda (prelex) (get-or-add-lexical! sm prelex))
+        bound*))))
+
+(define (add-realm! src sm name path version export* import*)
+  (extend-source-map! sm source-map-realm* source-map-realm*-set!
+    (make-realm src name path version export* import*)))
 
 (define (TODO-FIXME x) ;; TODO FIXME
   (ae->src
@@ -2313,6 +2332,8 @@
                                (unless (eq? (id->label id empty-wrap) label)
                                 ; must be an enclosing local-syntax binding for id
                                  (syntax-error orig "definition not permitted"))
+                               (maybe-source! sm =>
+                                 (add-realm! (TODO-FIXME ae) sm (parse-module-name e) '() '() iface-vector '()))
                                (let ([iface (make-interface (wrap-marks (syntax-object-wrap id)) iface-vector)])
                                  (let ([b (make-binding '$module iface)])
                                    (extend-rho! r label b (fxlognot 0))
@@ -2907,6 +2928,9 @@
                                 (build-lambda/lift-barrier no-source '()
                                   (build-library-body ae dl* db* dv* de*
                                     (build-sequence no-source `(,@inits ,(build-void)))))))))
+                        (maybe-source! sm =>
+                          (add-realm! (TODO-FIXME ae) sm library-uid library-path library-version
+                            iface-vector (map libreq-uid import-req*)))
 
                        ; must be after last reference to r
                         (for-each (kill-label! r) label*)
@@ -3121,6 +3145,9 @@
                ; body expressions so we get syntax, invalid define context, and
                ; other errors that might explain why exports are actually missing
                 (chexports)
+
+                (maybe-source! sm =>
+                  (add-realm! (TODO-FIXME ae) sm (parse-module-name orig) '() '() iface-vector '()))
 
                ; must be after last reference to r
                 (for-each (kill-label! r) label*)
@@ -3525,6 +3552,8 @@
                           ; must be an enclosing local-syntax binding for id
                            (syntax-error orig "definition not permitted"))
                          (record-id! defn-table id label)
+                         (maybe-source! sm =>
+                           (add-realm! (TODO-FIXME ae) sm (parse-module-name e) '() '() *iface-vector '()))
                          (let ([b (make-binding '$module iface)])
                            (extend-rho! r label b (fxlognot 0))
                            (parse (cdr body)
@@ -4128,6 +4157,8 @@
                                      (map (lambda (d) (make-frob d meta?)) forms)
                                      r #t label*)]
                                  [(exports exports-to-check iface-vector) (determine-exports 'module orig *expspec** r)])
+                     (maybe-source! sm =>
+                       (add-realm! (TODO-FIXME ae) sm (parse-module-name e) '() '() iface-vector '()))
                     ; valid bound ids checked already by chi-internal
                      (let ([iface (make-interface (wrap-marks (syntax-object-wrap id)) iface-vector)]
                            [vars (append *vars vars)]
@@ -4236,6 +4267,11 @@
          (syntax-case #'orig () [(k . stuff) (wrap #'k w)])
          (map (lambda (x) (wrap x body-wrap)) #'(form ...)))]
       [_ (syntax-error (source-wrap e w ae))])))
+
+(define (parse-module-name orig)
+  (syntax-case orig ()
+    [(_ mid (ex ...) . body) (identifier? #'mid) #'mid]
+    [_ #f]))
 
 (define parse-module
   (lambda (e w ae *w)
@@ -7084,7 +7120,8 @@
                      `((lexical ,lexical-info*)
                        (global ,global-info*)
                        (primitive ,prim-info*)
-                       (contour ,(source-map-contour sm))
+                       (contour ,(source-map-contour* sm))
+                       (realm ,(source-map-realm* sm))
                        (syntax ,(hashtable-values (source-map-syntax sm)))
                        ))
                    #; ;; HACK BARF
