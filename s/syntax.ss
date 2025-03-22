@@ -379,11 +379,6 @@
      (lambda ()
        (new (make-eq-hashtable) (make-eq-hashtable) (make-eq-hashtable) (make-eq-hashtable) '())))))
 
-;; TODO where do we want to grab (meta-level)
-;;      - could be per reference / assignment
-;;        e.g., lexical-ref-src*:    ((level . src) ...)
-;;      - may want to post-process as:  ((level . src ...) ...)
-
 (define-record-type lexical-info
   (nongenerative)
   (fields (immutable name) (immutable bind-src) (mutable ref-src*) (mutable set-src*))
@@ -392,6 +387,7 @@
      (lambda (prelex)
        (new (prelex-name prelex) (prelex->src prelex) '() '())))))
 
+;; TODO do we care about meta-level for globals?
 (define-record-type global-info
   (nongenerative)
   (fields (immutable name) (mutable ref-src*) (mutable set-src*))
@@ -411,15 +407,19 @@
 
 (define-record-type syntax-info
   (nongenerative)
-  (fields (immutable name) (immutable bind-src) (mutable ref-src*))
+  (fields (immutable name) (immutable bind-src) (immutable meta-level) (mutable ref-src*))
   (protocol
    (lambda (new)
      (lambda (name bind-src)
-       (new name bind-src '())))))
+       (new name bind-src (meta-level) '())))))
 
 (define-record-type contour
   (nongenerative)
-  (fields (immutable src) (immutable type) (immutable bound*)))
+  (fields (immutable src) (immutable type) (immutable meta-level) (immutable bound*))
+  (protocol
+   (lambda (new)
+     (lambda (src type bound*)
+       (new src type (meta-level) bound*)))))
 
 (define (get-or-add-source! sm key get-table make)
   (let ([cell (eq-hashtable-cell (get-table sm) key #f)])
