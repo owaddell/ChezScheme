@@ -2187,10 +2187,7 @@
                                          (wrap-marks (syntax-object-wrap id))
                                          top-ribcage)])
                            (extend-ribcage! ribcage id label)
-                           (maybe-source! sm =>
-                             ;; TODO save orig id for this to avoid the (wrap id w) above that we'll just undo
-                             (printf "[chi-top define-syntax-form ~s]\n" id) 
-                             (add-macro-binding! id sm label))
+                           (maybe-source! sm => (add-macro-binding! id sm label))
                            (unless (eq? (id->label id empty-wrap) label)
                             ; must be an enclosing local-syntax binding for id
                              (syntax-error (source-wrap e w ae)
@@ -3483,10 +3480,7 @@
                           [label (gen-global-label (id-sym-name id))]
                           [exp (not-at-top (meta-chi rhs r w))])
                      (extend-ribcage! ribcage id label)
-                     (maybe-source! sm =>
-                       ;; TODO save orig id for this to avoid the (wrap id w) above that we'll just undo
-                       (printf "[chi-external define-syntax-form ~s]\n" id) 
-                       (add-macro-binding! id sm label))
+                     (maybe-source! sm => (add-macro-binding! id sm label))
                      (unless (eq? (id->label id empty-wrap) label)
                       ; must be an enclosing local-syntax binding for id
                        (syntax-error (source-wrap e w ae)
@@ -4090,10 +4084,7 @@
                                   (defer-or-eval-transformer 'define-syntax local-eval-hook
                                     (meta-chi rhs r w))
                                   (fxlognot (meta-level)))])
-                     (maybe-source! sm =>
-                       ;; TODO save orig id for this to avoid the (wrap id w) above that we'll just undo
-                       (printf "[chi-internal define-syntax-form ~s]\n" id) 
-                       (add-macro-binding! id sm label))
+                     (maybe-source! sm => (add-macro-binding! id sm label))
                      (record-id! defn-table id label)
                      (extend-ribcage! ribcage id label)
                      (unless (eq? (id->label id empty-wrap) label)

@@ -2268,7 +2268,6 @@
     (guard (c [else #f])
       (let ([src-time (file-modification-time src-path)]
             [sx-path (string-append (path-root out-path) ".sx")])
-        (printf " looking for ~a\n" sx-path)
         (and (file-exists? sx-path)
              (and (time>=? (file-modification-time sx-path) src-time)
                   sx-path)))))
@@ -2278,7 +2277,8 @@
     (cond
      [(newer-sx-path in out) => ;; TODO ? attempt in do-compile-script as well???
       (lambda (sx-path)
-        (printf "attempting to use ~a\n" sx-path)  
+        (when (compile-file-message)
+          (printf "resuming compilation from ~a\n" sx-path))
         (read-intermediate-file who sx-path
           (lambda (hash-bang-line ip)
             (define (do-read) (fasl-read ip))
