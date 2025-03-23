@@ -4012,7 +4012,7 @@
          ; other errors that might explain why exports are actually missing
           (chexports)
           (for-each kill-local-label! label*)
-          (build-body (get-ae outer-form)
+          (build-body no-source
             (reverse vars) vals
             (build-sequence no-source exprs)))))))
 
