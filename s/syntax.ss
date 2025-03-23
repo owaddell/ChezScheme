@@ -382,7 +382,7 @@
 
 ;; TODO decide out how to provide access to compatible record types for client's use
 (define-record-type lexical-info
-  (nongenerative)
+  (nongenerative #{lexical-info ble5klpzns025alnatm0ydav9-0})
   (fields (immutable name) (immutable bind-src) (mutable ref-src*) (mutable set-src*))
   (protocol
    (lambda (new)
@@ -391,7 +391,7 @@
 
 ;; TODO do we care about meta-level for globals?
 (define-record-type global-info
-  (nongenerative)
+  (nongenerative #{global-info ble5klpzns025alnatm0ydav9-1})
   (fields (immutable name) (mutable ref-src*) (mutable set-src*))
   (protocol
    (lambda (new)
@@ -400,7 +400,7 @@
 
 ;; TODO better names? don't want to confuse with make-priminfo elsewhere
 (define-record-type prim-info
-  (nongenerative)
+  (nongenerative #{prim-info ble5klpzns025alnatm0ydav9-2})
   (fields (immutable name) (mutable ref-src*))
   (protocol
    (lambda (new)
@@ -408,7 +408,7 @@
        (new name (make-hashtable values fx=))))))
 
 (define-record-type syntax-info
-  (nongenerative)
+  (nongenerative #{syntax-info ble5klpzns025alnatm0ydav9-3})
   (fields (immutable name) (immutable bind-src) (immutable meta-level) (mutable ref-src*))
   (protocol
    (lambda (new)
@@ -416,7 +416,7 @@
        (new name bind-src (meta-level) '())))))
 
 (define-record-type contour
-  (nongenerative)
+  (nongenerative #{contour ble5klpzns025alnatm0ydav9-4})
   (fields (immutable src) (immutable type) (immutable meta-level) (immutable bound*))
   (protocol
    (lambda (new)
@@ -424,7 +424,7 @@
        (new src type (meta-level) bound*)))))
 
 (define-record-type realm
-  (nongenerative)
+  (nongenerative #{realm ble5klpzns025alnatm0ydav9-5})
   (fields
    (immutable src) (immutable name) (immutable path) (immutable version) (immutable meta-level) (immutable export*) (immutable import*))
   (protocol
