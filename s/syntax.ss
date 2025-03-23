@@ -380,6 +380,7 @@
      (lambda ()
        (new (make-eq-hashtable) (make-eq-hashtable) (make-eq-hashtable) (make-eq-hashtable) '() '())))))
 
+;; TODO decide out how to provide access to compatible record types for client's use
 (define-record-type lexical-info
   (nongenerative)
   (fields (immutable name) (immutable bind-src) (mutable ref-src*) (mutable set-src*))
@@ -517,16 +518,6 @@
     [(_ sm => e0 e1 ...)
      (identifier? #'sm)
      (cond [($source-map) => (lambda (sm) e0 e1 ...)])]))
-
-(define-syntax maybe-log
-  (syntax-rules ()
-    [(_ context val ...)
-     (cond
-      ;; TODO are we actually logging anything that's not already available via preinfo ?
-      ;;      - ah, maybe the source for the formals of a case-lambda clause ?
-      [($report-source-info) =>
-       (lambda (log!)
-         (log! context val ...))])]))
 
 ;; TODO look for existing mechanism for getting source
 ;; TODO recursion here based on syntax-object record-writer
@@ -7085,48 +7076,32 @@
            (cadr x)
            (let ((ctem (initial-mode-set (eval-syntax-expanders-when) compiling-a-file))
                  (rtem (initial-mode-set '(load eval) compiling-a-file))
-                 (sm (and ($report-source-info)
-                          (or (getprop 'HACK 'sm #f) ;; TODO HACK FIXME
-                              (let ([sm (make-source-map)])
-                                (putprop 'HACK 'sm sm) ;; TODO HACK FIXME
-                                sm)))))
+                 (sm (and ($report-source-info) (make-source-map))))
              (let ([x (at-top
-                        (parameterize ([meta-level 0])
-                          (parameterize ([$source-map sm])
+                        (parameterize ([meta-level 0] [$source-map sm])
                           (chi-top* x
                             (env-wrap env)
                             ctem rtem
                             (env-top-ribcage env)
-                            outfn))))])
-               (when sm
-                 (let ([lexical-info* (hashtable-values (source-map-lexical sm))]
-                       [global-info* (hashtable-values (source-map-global sm))]
-                       [prim-info*
-                        (vector-map
-                         (lambda (pi-orig)
-                           ;; post-process ref-src* to ((optimize-level . src ...) ...)
-                           (let ([pi (make-prim-info (prim-info-name pi-orig))])
-                             (prim-info-ref-src*-set! pi
-                               (vector->list (hashtable-cells (prim-info-ref-src* pi-orig))))
-                             pi))
-                        (hashtable-values (source-map-primitive sm)))])
-                   (maybe-log 'source-map
-                     `((lexical ,lexical-info*)
-                       (global ,global-info*)
-                       (primitive ,prim-info*)
-                       (contour ,(source-map-contour* sm))
-                       (realm ,(source-map-realm* sm))
-                       (syntax ,(hashtable-values (source-map-syntax sm)))
-                       ))
-                   #; ;; HACK BARF
-                   (begin
-                     (printf "stashing data under HACK FIXME property list\n")
-                     (putprop 'HACK 'FIXME ;; TODO FIXME HACK
-                       (cons ;; TODO FIXME just want the high-water mark but current wiring is super broken
-                         `((lexical ,lexical-info*)
-                           (global ,global-info*)
-                           (primitive ,prim-info*))
-                       (getprop 'HACK 'FIXME '()))))))
+                            outfn)))])
+                (cond
+                 [($report-source-info) =>
+                  (lambda (report)
+                    (when sm
+                      (report
+                       (hashtable-values (source-map-lexical sm))
+                       (hashtable-values (source-map-global sm))
+                       (vector-map
+                        (lambda (pi-orig)
+                          ;; post-process ref-src* to ((optimize-level . src ...) ...)
+                          (let ([pi (make-prim-info (prim-info-name pi-orig))])
+                            (prim-info-ref-src*-set! pi
+                              (vector->list (hashtable-cells (prim-info-ref-src* pi-orig))))
+                            pi))
+                        (hashtable-values (source-map-primitive sm)))
+                       (source-map-contour* sm)
+                       (source-map-realm* sm)
+                       (hashtable-values (source-map-syntax sm)))))])
                (if records? x ($uncprep x)))))))))
 
 (set-who! $require-include
