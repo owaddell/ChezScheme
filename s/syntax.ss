@@ -755,9 +755,11 @@
       (build-profile ae `(ref ,src ,prelex)))))
 
 (define build-lexical-assignment
-  (lambda (ae var exp)
+  (lambda (ae id var exp)
     (let ([src (ae->src ae)])
-      (maybe-source! sm => (add-lexical-set! src var sm))
+      (maybe-source! sm =>
+        (printf "set! ~s old-src = ~s\n" id src)           
+        (add-lexical-set! (TODO-FIXME id) var sm))
       (set-prelex-assigned! var #t)
       (build-profile ae `(set! ,src ,var ,exp)))))
 
@@ -3887,7 +3889,7 @@
                 (let ((val (chi (syntax val) r w)))
                   (let ((b (lookup (id->label #'id w) r)))
                     (case (binding-type b)
-                      ((lexical) (build-lexical-assignment ae (binding-value b) val))
+                      ((lexical) (build-lexical-assignment ae (syntax id) (binding-value b) val))
                       ((global) (build-global-assignment ae (binding-value b) val))
                       ((immutable-global) (syntax-error (wrap #'id w) "attempt to assign immutable variable"))
                       ((primitive)
