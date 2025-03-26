@@ -381,6 +381,7 @@
        (new (make-eq-hashtable) (make-eq-hashtable) (make-eq-hashtable) (make-eq-hashtable) '() '())))))
 
 ;; TODO decide out how to provide access to compatible record types for client's use
+;; TODO re-sync gensyms if need be; doh, we can't change the mutability of record once we fasl it out
 (define-record-type lexical-info
   (nongenerative #{lexical-info ble5klpzns025alnatm0ydav9-0})
   (fields (immutable name) (immutable bind-src) (mutable ref-src*) (mutable set-src*))
@@ -400,12 +401,12 @@
 
 ;; TODO better names? don't want to confuse with make-priminfo elsewhere
 (define-record-type prim-info
-  (nongenerative #{prim-info ble5klpzns025alnatm0ydav9-2})
-  (fields (immutable name) (mutable ref-src*))
+  (nongenerative #{prim-info a9h3n8t2pis427wy51x6e77bg-0})
+  (fields (immutable name) (mutable ref2-src*) (mutable ref3-src*))
   (protocol
    (lambda (new)
      (lambda (name)
-       (new name (make-hashtable values fx=))))))
+       (new name '() '())))))
 
 (define-record-type syntax-info
   (nongenerative #{syntax-info ble5klpzns025alnatm0ydav9-3})
@@ -469,9 +470,11 @@
 
 (define (add-prim-ref src name sm level)
   (let ([info (get-or-add-source! sm name source-map-primitive make-prim-info)])
-    (hashtable-update! (prim-info-ref-src* info) level
-      (lambda (prev) (cons src prev))
-      '())))
+    ;; 2 or 3 given base-lang.ss lookup-primref
+    (case level
+      [(2) (prim-info-ref2-src*-set! info (cons src (prim-info-ref2-src* info)))]
+      [(3) (prim-info-ref3-src*-set! info (cons src (prim-info-ref3-src* info)))]
+      [else ($oops #f "unexpected primitive level ~s" level)])))
 
 (define (extend-source-map! sm get-field set-field! item)
   (set-field! sm (cons item (get-field sm))))
@@ -7082,14 +7085,7 @@
                       (report
                        (hashtable-values (source-map-lexical sm))
                        (hashtable-values (source-map-global sm))
-                       (vector-map
-                        (lambda (pi-orig)
-                          ;; post-process ref-src* to ((optimize-level . src ...) ...)
-                          (let ([pi (make-prim-info (prim-info-name pi-orig))])
-                            (prim-info-ref-src*-set! pi
-                              (vector->list (hashtable-cells (prim-info-ref-src* pi-orig))))
-                            pi))
-                        (hashtable-values (source-map-primitive sm)))
+                       (hashtable-values (source-map-primitive sm))
                        (source-map-contour* sm)
                        (source-map-realm* sm)
                        (hashtable-values (source-map-syntax sm)))))])
