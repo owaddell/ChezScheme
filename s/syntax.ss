@@ -757,9 +757,7 @@
 (define build-lexical-assignment
   (lambda (ae id var exp)
     (let ([src (ae->src ae)])
-      (maybe-source! sm =>
-        (printf "set! ~s old-src = ~s\n" id src)           
-        (add-lexical-set! (TODO-FIXME id) var sm))
+      (maybe-source! sm => (add-lexical-set! (TODO-FIXME id) var sm))
       (set-prelex-assigned! var #t)
       (build-profile ae `(set! ,src ,var ,exp)))))
 
@@ -800,9 +798,9 @@
       (build-primcall ae (if (or safe? (fx= (optimize-level) 3)) 3 2) '$top-level-value `(quote ,name))))
 
   (define build-global-assignment
-    (lambda (ae name val)
+    (lambda (ae id name val)
       (when (eq? (subset-mode) 'system) (unbound-warning (ae->src ae) "assignment to" name))
-      (maybe-source! sm => (add-global-set! (ae->src ae) name sm))
+      (maybe-source! sm => (add-global-set! (TODO-FIXME id) name sm))
       (build-primcall ae 3 '$set-top-level-value! `(quote ,name) val))))
 
 (define build-cte-install
@@ -975,7 +973,8 @@
                                         ;; TODO should we be doing something w/ no-source here???
                                         (cons (build-lexical-var no-source 'ignore) vars)
                                         ;; TODO trying to get id ae here (this would be a change to tl-set!'s current entire form ae)
-                                        (cons (build-global-assignment id-ae var val-exp) val-exps)))
+                                        ;; TODO fix this id-ae, probably should just be some sort of id and we don't pay to extract source unless we have a source map
+                                        (cons (build-global-assignment ae id-ae var val-exp) val-exps)))
                                     (values
                                       (cons var vars)
                                       (cons val-exp val-exps)))))))])
@@ -993,7 +992,8 @@
                                         (values
                                          (cons x vars)
                                          ;; TODO trying to get id ae here (this would be a change to tl-set!'s current entire form ae)
-                                         (cons (build-global-assignment id-ae var (build-lexical-reference no-source x)) sets))))
+                                         ;; TODO fix this id-ae, probably should just be some sort of id and we don't pay to extract source unless we have a source map
+                                         (cons (build-global-assignment ae id-ae var (build-lexical-reference no-source x)) sets))))
                                     (values (cons var vars) sets))))))])
           (build-letrec ae vars val-exps
             (if (null? sets)
@@ -1057,7 +1057,8 @@
             (if label
                 `(seq
                    ;; TODO trying to get id ae here (this would be a change to tl-set!'s current entire form ae)
-                   ,(build-global-assignment (prelex-source var) label
+                   ;; TODO careful here about what we're passing in as "id" to build-global-assignment
+                   ,(build-global-assignment ae (prelex-source var) label
                       (build-cte-optimization-loc box
                         (build-lexical-reference no-source var)
                         exts))
@@ -2413,7 +2414,7 @@
                        (fluid-let ([require-invoke (library-collector #f)]
                                    [require-visit (library-collector #f)])
                          (residualize-invoke-requirements
-                           (build-global-assignment ae label
+                           (build-global-assignment ae id label
                              (not-at-top (chi rhs r empty-wrap)))))))
                    rcode*))]
               [system-define (label rhs ae)
@@ -2427,7 +2428,7 @@
                            (let ([rhs (not-at-top (chi rhs r empty-wrap))])
                              (if (eq? (binding-type (lookup-global label)) 'primitive)
                                  (build-primitive-assignment ae label rhs)
-                                 (build-global-assignment ae label rhs)))))))
+                                 (build-global-assignment ae #f label rhs)))))))
                    rcode*))]
               [define-syntax (id binding rhs import* visit* invoke*)
                (process-forms (cdr bf*)
@@ -2485,7 +2486,6 @@
                        (lambda () (build-cte-install id (build-data no-source binding) top-token))))
                    rcode*))]
               [meta-define (id label binding expr import* visit* invoke*)
-               (define id-ae (syntax-object-expression id))
                (process-forms (cdr bf*)
                  (cons
                    (ct-eval/residualize ctem
@@ -2495,8 +2495,7 @@
                          (build-sequence no-source
                            (list
                              (build-cte-install label (build-data no-source binding) #f)
-                             ;; TODO trying to get id ae here (this would be a change to tl-set!'s current entire form ae)
-                             (build-global-assignment id-ae label expr))))))
+                             (build-global-assignment no-source id label expr))))))
                    rcode*))]
               [meta-eval (expr import* visit* invoke*)
                (process-forms (cdr bf*)
@@ -3030,7 +3029,6 @@
                              (cons `(,label . ,unexported-binding) env*)
                              vthunk vcode* dl* dv* de*)))]
                     [meta-define (id label binding expr)
-                     (define id-ae (syntax-object-expression id))
                      (if (mbodit-exported mb)
                          (let ([binding (make-binding 'library-meta-global (cons library-uid (binding-value binding)))])
                            (process-bindings mb*
@@ -3038,15 +3036,14 @@
                              (lambda () ($sc-put-cte label binding #f) (vthunk))
                              (cons*
                                (build-cte-install label (build-data no-source binding) #f)
-                               ;; TODO trying to get id ae here (this would be a change to tl-set!'s current entire form ae)
-                               (build-global-assignment id-ae label expr)
+                               (build-global-assignment no-source id label expr)
                                vcode*)
                              dl* dv* de*))
                          (process-bindings mb*
                            (cons `(,label . ,unexported-binding) env*)
                            vthunk
                            ;; TODO trying to get id ae here (this would be a change to tl-set!'s current entire form ae)
-                           (cons (build-global-assignment id-ae label expr) vcode*)
+                           (cons (build-global-assignment no-source id label expr) vcode*)
                            dl* dv* de*))]
                     [meta-eval (expr)
                      (process-bindings mb* env* vthunk (cons expr vcode*) dl* dv* de*)]
@@ -3224,21 +3221,20 @@
                          (cons `(,label . ,unexported-binding) env*)
                          vthunk vcode* dt* dv* de*)))]
                 [meta-define (id label binding expr)
-                 (define id-ae (syntax-object-expression id))
                  (if (mbodit-exported mb)
                      (process-bindings mb* env*
                        (lambda () ($sc-put-cte label binding #f) (vthunk))
                        (cons*
                          (build-cte-install label (build-data no-source binding) #f)
                          ;; TODO trying to get id ae here (this would be a change to tl-set!'s current entire form ae)
-                         (build-global-assignment id-ae label expr)
+                         (build-global-assignment ae id label expr)
                          vcode*)
                        dt* dv* de*)
                      (process-bindings mb*
                        (cons `(,label . ,unexported-binding) env*)
                        vthunk
                        ;; TODO trying to get id ae here (this would be a change to tl-set!'s current entire form ae)
-                       (cons (build-global-assignment id-ae label expr) vcode*)
+                       (cons (build-global-assignment ae id label expr) vcode*)
                        dt* dv* de*))]
                 [meta-eval (expr)
                  (process-bindings mb* env* vthunk (cons expr vcode*) dt* dv* de*)]
@@ -3889,8 +3885,8 @@
                 (let ((val (chi (syntax val) r w)))
                   (let ((b (lookup (id->label #'id w) r)))
                     (case (binding-type b)
-                      ((lexical) (build-lexical-assignment ae (syntax id) (binding-value b) val))
-                      ((global) (build-global-assignment ae (binding-value b) val))
+                      ((lexical) (build-lexical-assignment ae #'id (binding-value b) val))
+                      ((global) (build-global-assignment ae #'id (binding-value b) val))
                       ((immutable-global) (syntax-error (wrap #'id w) "attempt to assign immutable variable"))
                       ((primitive)
                        (unless (eq? (subset-mode) 'system)
@@ -3906,7 +3902,7 @@
                            (displaced-lexical-error (source-wrap e w ae) "assign" #f)))
                       ((meta-variable)
                        (if (fx> (meta-level) 0)
-                           (build-global-assignment ae (binding-value b) val)
+                           (build-global-assignment ae #'id (binding-value b) val)
                            (displaced-lexical-error (wrap (syntax id) w) "assign" #f)))
                       ((displaced-lexical)
                        (displaced-lexical-error (wrap (syntax id) w) "assign" (binding-value b)))
