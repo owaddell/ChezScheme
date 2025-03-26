@@ -458,6 +458,7 @@
 (define (add-lexical-set! src prelex sm)
   (add-lexical! src prelex sm lexical-info-set-src* lexical-info-set-src*-set!))
 
+;; TODO rename this; it's very likely not a prelex; probably a symbol
 (define (add-global! src prelex sm get set)
   (let ([info (get-or-add-global! sm prelex)])
     (set info (cons src (get info)))))
