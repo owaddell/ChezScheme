@@ -379,7 +379,10 @@
   (protocol
    (lambda (new)
      (lambda ()
-       (new (make-eq-hashtable) (make-eq-hashtable) (make-eq-hashtable) (make-eq-hashtable) (make-hashtable symbol-hash eq?) '() '())))))
+       (new (make-eq-hashtable) (make-eq-hashtable) (make-eq-hashtable) (make-eq-hashtable)
+         ;; TODO is this safe? can we rely on mid being a symbol (not #f, say) where we add-import!
+         (make-hashtable symbol-hash eq?)
+         '() '())))))
 
 ;; TODO decide out how to provide access to compatible record types for client's use
 ;; TODO re-sync gensyms if need be; doh, we can't change the mutability of record once we fasl it out
