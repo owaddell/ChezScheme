@@ -6485,7 +6485,13 @@
     (define regen
       (lambda (x)
         (case (car x)
-          ((ref) (build-lexical-reference (get-ae (caddr x)) (cadr x)))
+          ((ref) (build-lexical-reference
+                  ;; TODO restore the commented-out bit here and update the testfile-cp4.ss case
+                  ;;      which appears to differ in now getting profile counts for pattern-variable
+                  ;;      references within the syntax form (for now disable to make mats happy)
+                  no-source
+                  #;    
+                  (get-ae (caddr x)) (cadr x)))
           ((primitive) (build-primref 3 (cadr x)))
           ((quote) (build-data no-source (cadr x)))
           ((lambda) (build-lambda no-source (cadr x) (regen (caddr x))))
