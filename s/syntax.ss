@@ -373,12 +373,13 @@
    (immutable global)     ;; name -> global-info
    (immutable primitive)  ;; name -> prim-info
    (immutable syntax)     ;; name -> syntax-info   ;; TODO maybe this is more like CTE ?
+   (immutable imports)    ;; mid -> (source ...)
    (mutable realm*)       ;; (realm ...)
    (mutable contour*))    ;; (contour ...)
   (protocol
    (lambda (new)
      (lambda ()
-       (new (make-eq-hashtable) (make-eq-hashtable) (make-eq-hashtable) (make-eq-hashtable) '() '())))))
+       (new (make-eq-hashtable) (make-eq-hashtable) (make-eq-hashtable) (make-eq-hashtable) (make-hashtable symbol-hash eq?) '() '())))))
 
 ;; TODO decide out how to provide access to compatible record types for client's use
 ;; TODO re-sync gensyms if need be; doh, we can't change the mutability of record once we fasl it out
@@ -492,6 +493,12 @@
 (define (add-realm! src sm name path version export* import*)
   (extend-source-map! sm source-map-realm* source-map-realm*-set!
     (make-realm src name path version export* import*)))
+
+(define (add-import! sm mid import-spec)
+  (hashtable-update! (source-map-imports sm) (id-sym-name mid)
+    (lambda (prev)
+      (cons (TODO-FIXME import-spec) prev))
+    '()))
 
 (define (TODO-FIXME x) ;; TODO FIXME
   (ae->src
@@ -2254,6 +2261,7 @@
                                (fluid-let ([require-import (propagating-library-collector require-import #f)]
                                            [require-visit (library-collector #f)])
                                  (let-values ([(mid tid imps) (determine-imports (car impspec*) r std?)])
+                                   (maybe-source! sm => (add-import! sm mid (car impspec*)))
                                    (let ([bf* (process-impspecs (cdr impspec*))])
                                      (if (import-interface? imps)
                                          (extend-ribcage-subst! ribcage imps)
@@ -3551,6 +3559,7 @@
                      (if (null? impspec*)
                          (when only? (for-each (lambda (tid) (extend-ribcage-barrier! ribcage tid)) tid*))
                          (let-values ([(mid tid imps) (determine-imports (car impspec*) r std?)])
+                           (maybe-source! sm => (add-import! sm mid (car impspec*)))
                            (process-impspecs (cdr impspec*) (cons tid tid*))
                            (if (import-interface? imps)
                                (begin
@@ -4120,6 +4129,7 @@
                      (if (null? impspec*)
                          (when only? (for-each (lambda (tid) (extend-ribcage-barrier! ribcage tid)) tid*))
                          (let-values ([(mid tid imps) (determine-imports (car impspec*) r std?)])
+                           (maybe-source! sm => (add-import! sm mid (car impspec*)))
                            (process-impspecs (cdr impspec*) (cons tid tid*))
                            (if (import-interface? imps)
                                (begin
@@ -7088,6 +7098,7 @@
                        (hashtable-values (source-map-primitive sm))
                        (source-map-contour* sm)
                        (source-map-realm* sm)
+                       (source-map-imports sm)
                        (hashtable-values (source-map-syntax sm)))))])
                (if records? x ($uncprep x)))))))))
 
