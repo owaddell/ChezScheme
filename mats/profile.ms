@@ -647,10 +647,13 @@
       (2 "testfile-cp4.ss" 110 231 7 7)
       (2 "testfile-cp4.ss" 123 124 7 20)
       (2 "testfile-cp4.ss" 162 229 9 10)
+;;    (2 "testfile-cp4.ss" 171 172 9 19)   ; reference to pattern variable x
       (2 "testfile-cp4.ss" 182 210 9 30)
       (2 "testfile-cp4.ss" 183 186 9 31)
       (2 "testfile-cp4.ss" 187 193 9 35)
       (2 "testfile-cp4.ss" 194 209 9 42)   ; ... last transformer count
+;;    (2 "testfile-cp4.ss" 202 203 9 50)   ; reference to pattern variable d
+;;    (2 "testfile-cp4.ss" 227 228 10 14)  ; reference to pattern variable e
       ))
   (begin
     (collect (collect-maximum-generation))
