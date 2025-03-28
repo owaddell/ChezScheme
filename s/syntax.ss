@@ -1063,6 +1063,11 @@
 
 (define build-library-body
   (lambda (ae labels boxes vars val-exps body-exp)
+    ;; TODO should we suppress source from calls to build-library-body?
+    ;;      - potential rationale is that we'll insert apparent lexical references that have no-source and that could make
+    ;;        an LSP "rename-references" tool reluctant to do its work; yet these are hidden references not present in the source
+    ;;      - OTOH, we may still want some way to connect the global label to the lexical var
+    (parameterize ([$source-map #f])                                    
     (let ([exts (build-library-exts labels vars)])
       (build-letrec* ae vars val-exps
         (fold-right
@@ -1071,13 +1076,17 @@
                 `(seq
                    ;; TODO trying to get id ae here (this would be a change to tl-set!'s current entire form ae)
                    ;; TODO careful here about what we're passing in as "id" to build-global-assignment
+                   ;; TODO see above; might not want prelex-source here, yet we may want to connect to global label elsewhere
                    ,(build-global-assignment no-source (prelex-source var) label
                       (build-cte-optimization-loc box
+                        ;; TODO this might be where the extra lexical-info comes from ???
+                        ;;      NO, but it is where one of the #f refs comes from
                         (build-lexical-reference no-source var)
                         exts))
                    ,body)
                 body))
           body-exp labels boxes vars)))))
+  )                                 
 
 (define (build-library-exts labels vars)
   (fold-left (lambda (exts label var)
