@@ -558,6 +558,7 @@
   ; for top-level macro transformers and eval-when, use default
   ; system evaluator
   (lambda (x)
+    ;; TODO should we parameterize $source-map here, in local-eval-hook, and around calls to eval in defer-or-eval-transformer ?
     (eval `(,noexpand ,x))))
 
 (define local-eval-hook
