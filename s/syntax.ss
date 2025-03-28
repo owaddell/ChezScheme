@@ -1071,7 +1071,7 @@
                 `(seq
                    ;; TODO trying to get id ae here (this would be a change to tl-set!'s current entire form ae)
                    ;; TODO careful here about what we're passing in as "id" to build-global-assignment
-                   ,(build-global-assignment ae (prelex-source var) label
+                   ,(build-global-assignment no-source (prelex-source var) label
                       (build-cte-optimization-loc box
                         (build-lexical-reference no-source var)
                         exts))
