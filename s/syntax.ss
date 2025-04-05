@@ -463,9 +463,8 @@
 (define (add-lexical-set! src prelex sm)
   (add-lexical! src prelex sm lexical-info-set-src* lexical-info-set-src*-set!))
 
-;; TODO rename this; it's very likely not a prelex; probably a symbol
-(define (add-global! src prelex sm get set)
-  (let ([info (get-or-add-global! sm prelex)])
+(define (add-global! src name sm get set)
+  (let ([info (get-or-add-global! sm name)])
     (set info (cons src (get info)))))
 
 (define (add-global-ref! src name sm)
@@ -495,7 +494,7 @@
 
 (define (add-realm! src sm name path version export* import*)
   (extend-source-map! sm source-map-realm* source-map-realm*-set!
-    (make-realm src name path version export* import*)))
+    (make-realm src name path version (vector->immutable-vector export*) import*)))
 
 (define (add-import! sm mid import-spec)
   (hashtable-update! (source-map-imports sm) (id-sym-name mid)
@@ -811,9 +810,9 @@
       (build-primcall ae (if (or safe? (fx= (optimize-level) 3)) 3 2) '$top-level-value `(quote ,name))))
 
   (define build-global-assignment
-    (lambda (ae id name val)
+    (lambda (ae id-src name val)
       (when (eq? (subset-mode) 'system) (unbound-warning (ae->src ae) "assignment to" name))
-      (maybe-source! sm => (add-global-set! (TODO-FIXME id) name sm))
+      (maybe-source! sm => (add-global-set! (TODO-FIXME id-src) name sm))
       (build-primcall ae 3 '$set-top-level-value! `(quote ,name) val))))
 
 (define build-cte-install
@@ -1063,30 +1062,24 @@
 
 (define build-library-body
   (lambda (ae labels boxes vars val-exps body-exp)
-    ;; TODO should we suppress source from calls to build-library-body?
-    ;;      - potential rationale is that we'll insert apparent lexical references that have no-source and that could make
-    ;;        an LSP "rename-references" tool reluctant to do its work; yet these are hidden references not present in the source
-    ;;      - OTOH, we may still want some way to connect the global label to the lexical var
-    (parameterize ([$source-map #f])                                    
-    (let ([exts (build-library-exts labels vars)])
-      (build-letrec* ae vars val-exps
-        (fold-right
-          (lambda (label box var body)
-            (if label
-                `(seq
-                   ;; TODO trying to get id ae here (this would be a change to tl-set!'s current entire form ae)
-                   ;; TODO careful here about what we're passing in as "id" to build-global-assignment
-                   ;; TODO see above; might not want prelex-source here, yet we may want to connect to global label elsewhere
-                   ,(build-global-assignment no-source (prelex-source var) label
-                      (build-cte-optimization-loc box
-                        ;; TODO this might be where the extra lexical-info comes from ???
-                        ;;      NO, but it is where one of the #f refs comes from
-                        (build-lexical-reference no-source var)
-                        exts))
-                   ,body)
-                body))
-          body-exp labels boxes vars)))))
-  )                                 
+    ;; We don't report source for the global assignments and lexical references
+    ;; constructed here since:
+    ;;  1. We already record the connection in chi-top-library, and
+    ;;  2. These forms are not explicit in the source code.
+    (parameterize ([$source-map #f])
+      (let ([exts (build-library-exts labels vars)])
+        (build-letrec* ae vars val-exps
+          (fold-right
+            (lambda (label box var body)
+              (if label
+                  `(seq
+                     ,(build-global-assignment no-source no-source label
+                        (build-cte-optimization-loc box
+                          (build-lexical-reference no-source var)
+                          exts))
+                     ,body)
+                  body))
+            body-exp labels boxes vars))))))
 
 (define (build-library-exts labels vars)
   (fold-left (lambda (exts label var)
@@ -2941,7 +2934,13 @@
                                     (build-sequence no-source `(,@inits ,(build-void)))))))))
                         (maybe-source! sm =>
                           (add-realm! (TODO-FIXME ae) sm library-uid library-path library-version
-                            iface-vector (map libreq-uid import-req*)))
+                            iface-vector (map libreq-uid import-req*))
+                          (for-each
+                           (lambda (label var)
+                             (when label
+                               ;; TODO record this instead on the lexical info as an alternative / export name?
+                               (add-global-set! (TODO-FIXME (prelex-source var)) label sm)))
+                           dl* dv*))
 
                        ; must be after last reference to r
                         (for-each (kill-label! r) label*)
@@ -7112,6 +7111,11 @@
                   (lambda (report)
                     (when sm
                       (report
+                       ;; TODO just temporarily including outfn                          
+                       outfn     
+                       ;; TODO OTOH, maybe we /should/ include some sort of token to say what vintage things are from?
+                       ;;            like the file-crc or some such (but we don't have it)
+                       ;;            Maybe filename is a reasonable starting point?
                        (hashtable-values (source-map-lexical sm))
                        (hashtable-values (source-map-global sm))
                        (hashtable-values (source-map-primitive sm))
