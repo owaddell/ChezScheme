@@ -787,9 +787,9 @@
   (lambda (ae prelex)
     (let ([src (ae->src ae)])
       (maybe-source! sm => (add-lexical-ref! src prelex sm))
-       (if (prelex-referenced prelex)
-          (set-prelex-multiply-referenced! prelex #t)
-          (set-prelex-referenced! prelex #t))
+      (if (prelex-referenced prelex)
+         (set-prelex-multiply-referenced! prelex #t)
+         (set-prelex-referenced! prelex #t))
       (build-profile ae `(ref ,src ,prelex)))))
 
 (define build-lexical-assignment
