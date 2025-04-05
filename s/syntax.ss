@@ -375,14 +375,15 @@
    (immutable syntax)     ;; name -> syntax-info   ;; TODO maybe this is more like CTE ?
    (immutable imports)    ;; mid -> (source ...)
    (mutable realm*)       ;; (realm ...)
-   (mutable contour*))    ;; (contour ...)
+   (mutable contour*)     ;; (contour ...)
+   (mutable alias*))    ;; alias: ((new-id . old-id) ...)
   (protocol
    (lambda (new)
      (lambda ()
        (new (make-eq-hashtable) (make-eq-hashtable) (make-eq-hashtable) (make-eq-hashtable)
          ;; TODO is this safe? can we rely on mid being a symbol (not #f, say) where we add-import!
          (make-hashtable symbol-hash eq?)
-         '() '())))))
+         '() '() '())))))
 
 ;; TODO decide out how to provide access to compatible record types for client's use
 ;; TODO re-sync gensyms if need be; doh, we can't change the mutability of record once we fasl it out
@@ -496,6 +497,14 @@
 (define (add-realm! src sm name path version export* import*)
   (extend-source-map! sm source-map-realm* source-map-realm*-set!
     (make-realm src name path version (vector->immutable-vector export*) import*)))
+
+(define (add-alias! sm new-id old-id)
+  ;; TODO should we grab the label
+  ;;      - use that as the key?
+  ;; TODO maybe we should generalize lexical-info / global-info / etc.
+  ;;      into: identifier-info with a type that is lexical / global / syntax / alias
+  (source-map-alias*-set! sm
+    (cons (cons new-id old-id) (source-map-alias* sm))))
 
 (define (add-import! sm mid import-spec)
   (hashtable-update! (source-map-imports sm) (id-sym-name mid)
@@ -2296,6 +2305,7 @@
                          (unless (eq? (id->label new-id empty-wrap) (label/pl->label label/pl))
                           ; must be an enclosing local-syntax binding for new-id
                            (syntax-error (source-wrap e w ae) "definition not permitted"))
+                         (maybe-source! sm => (add-alias! sm new-id old-id))
                          (parse (cdr frob*)
                            (let ([id (make-resolved-id (id-sym-name new-id) (wrap-marks (syntax-object-wrap new-id)) label/pl)])
                              (cons (bodit-alias id) bf*))
@@ -3607,6 +3617,7 @@
                        (syntax-error (source-wrap e w ae)
                          "definition not permitted"))
                      (record-id! defn-table new-id label)
+                     (maybe-source! sm => (add-alias! sm new-id old-id))
                      (parse (cdr body) mb* inits chexports
                        #f expspec** iexport* impind? label*)))]
                 [(begin-form)
@@ -4214,6 +4225,7 @@
                       ; must be an enclosing local-syntax binding for new-id
                        (syntax-error (source-wrap e w ae)
                          "definition not permitted"))
+                     (maybe-source! sm => (add-alias! sm new-id old-id))
                      (record-id! defn-table new-id label)
                      (parse (cdr body)
                        vars
@@ -7111,19 +7123,15 @@
                  [($report-source-info) =>
                   (lambda (report)
                     (when sm
-                      (report
-                       ;; TODO just temporarily including outfn                          
-                       outfn     
-                       ;; TODO OTOH, maybe we /should/ include some sort of token to say what vintage things are from?
-                       ;;            like the file-crc or some such (but we don't have it)
-                       ;;            Maybe filename is a reasonable starting point?
+                      (report outfn
                        (hashtable-values (source-map-lexical sm))
                        (hashtable-values (source-map-global sm))
                        (hashtable-values (source-map-primitive sm))
                        (source-map-contour* sm)
                        (source-map-realm* sm)
                        (source-map-imports sm)
-                       (hashtable-values (source-map-syntax sm)))))])
+                       (hashtable-values (source-map-syntax sm))
+                       (source-map-alias* sm))))])
                (if records? x ($uncprep x)))))))))
 
 (set-who! $require-include
