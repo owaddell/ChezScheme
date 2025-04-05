@@ -499,6 +499,7 @@
       (printf "empty ~s contour at ~s\n" type src)    
       (extend-source-map! sm source-map-contour* source-map-contour*-set!
         (make-contour src type
+          ;; TODO if we defer lexical references to $extract-source then how do we link contour to bound vars?
           (map (lambda (prelex) (get-or-add-lexical! sm prelex))
             bound*))))
   )
@@ -786,7 +787,7 @@
 (define build-lexical-reference
   (lambda (ae prelex)
     (let ([src (ae->src ae)])
-      (maybe-source! sm => (add-lexical-ref! src prelex sm))
+      (maybe-source! sm => (add-lexical-ref! src prelex sm)) ;; TODO defer to $extract-source ?
       (if (prelex-referenced prelex)
          (set-prelex-multiply-referenced! prelex #t)
          (set-prelex-referenced! prelex #t))
@@ -795,7 +796,7 @@
 (define build-lexical-assignment
   (lambda (ae id var exp)
     (let ([src (ae->src ae)])
-      (maybe-source! sm => (add-lexical-set! (TODO-FIXME id) var sm))
+      (maybe-source! sm => (add-lexical-set! (TODO-FIXME id) var sm)) ;; TODO defer to $extract-source ?
       (set-prelex-assigned! var #t)
       (build-profile ae `(set! ,src ,var ,exp)))))
 
