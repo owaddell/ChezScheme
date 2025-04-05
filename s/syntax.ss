@@ -982,6 +982,8 @@
 
 (define build-top-module
   (lambda (ae types vars val-exps body-exp)
+    ;; TODO revert the changes here and do something more like the maybe-source! in chi-top-library where we
+    ;;      call build-library-body? (maybe this is just something that add-realm! should do?)
     (if (internal-defines-as-letrec*)
         (let-values ([(vars val-exps)
                       (let f ([types types] [vars vars] [val-exps val-exps])
