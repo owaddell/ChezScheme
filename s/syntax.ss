@@ -477,6 +477,7 @@
   (let ([info (get-or-add-source! sm name source-map-primitive make-prim-info)])
     ;; 2 or 3 given base-lang.ss lookup-primref
     (case level
+      ;; TODO instead rename ref2 and ref3 to safe and unsafe ?
       [(2) (prim-info-ref2-src*-set! info (cons src (prim-info-ref2-src* info)))]
       [(3) (prim-info-ref3-src*-set! info (cons src (prim-info-ref3-src* info)))]
       [else ($oops #f "unexpected primitive level ~s" level)])))

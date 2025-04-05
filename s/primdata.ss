@@ -2005,6 +2005,7 @@
   ($expand/cte [sig [(ptr) (ptr environment) -> (ptr)]] [flags])
   ($expand-fp-ftype [flags single-valued])
   ($expeditor [feature expeditor] [flags])
+  ($extract-source [flags])
   ($fasl-base-rtd [flags single-valued])
   ($fasl-bld-graph [flags single-valued])
   ($fasl-can-combine? [flags single-valued])

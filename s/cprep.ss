@@ -21,6 +21,7 @@
   (include "expand-lang.ss")
 
   (define-who Lexpand-to-go
+    ;; TODO maybe pass in another procedure to extract library info?
     (lambda (x go)
       (define-pass go-Inner : (Lexpand Inner) (ir) -> * (val)
         (Inner : Inner (ir) -> * (val)
@@ -334,4 +335,90 @@
         (Expr : Expr (ir) -> Expr ()
           [(profile ,src) (source-table-set! st src 0) `(profile ,src)]))
       (Lexpand-to-go x record-coverage-info!)))
+
+  ;; NOTE on the $extract-source design explored here
+  ;;      - pro: can extract source information from the .sx file; fewer files to juggle
+  ;;      - pro: source info is circumscribed by what we residualized; easier to manage than the "accumulate log" model
+  ;;      - pro: could apply this to other Lsrc output, after cp0, for example
+  ;;      - con: maintenance overhead; we'll have to work harder here to uncover source; e.g., for primitive references
+  ;;             we'd have to look for
+  ;;             - (call ,src ,pr ,e1* ...)
+  ;;             - (seq (profile ,src) ,pr)
+  ;;             - ,pr                                    ;; by default often hit this case
+  ;;               - we won't get source here when
+  ;;                   (suppress-primitive-inlining #f)   ;; this is the default
+  ;;                 and either
+  ;;                   (compile-profile) is not 'source   ;; default is #f
+  ;;                 or
+  ;;                   (generate-profile-forms) is false
+  ;;      - also: need to figure out how to capture meta information and that won't end up in .sx file right now
+  ;; TODO for EXPERIMENT alt to embedding hook in syntax.ss
+  ;;      - build def-use from prelex
+  ;;      - dig into call to find top-level ref/set
+  ;;      - figure out where to hook so we also get meta source
+  ;;      - may need some way to walk a source table
+  ;;      - would want a way to point at a .sx file and call $extract-source
+  ;;        on the right bits
+  ;;      - operating on Lsrc might let us do something interesting with
+  ;;        input/output of cp0
+  ;;      - hmm, how will we get info about library forms; may have to dig into recompile info?
+  (set-who! $extract-source
+    (lambda (x)
+      ;; TODO decide how to share this with syntax.ss      
+      (define ae->src
+        (lambda (ae)
+          (and (and (annotation? ae) (fxlogtest (annotation-flags ae) (constant annotation-debug)))
+               (annotation-source ae))))
+      (define (prelex->src prelex)
+        (ae->src (prelex-source prelex)))
+      (define st (make-source-table)) ;; TODO still not sure what we want
+      (define lexical-bindings (make-eq-hashtable))
+      ;; TODO figure out how to share this with syntax.ss      
+      (define-record-type lexical-info
+        (nongenerative #{lexical-info ble5klpzns025alnatm0ydav9-0})
+        (fields (immutable name) (immutable bind-src) (mutable ref-src*) (mutable set-src*))
+        (protocol
+         (lambda (new)
+           (lambda (prelex)
+             (new (prelex-name prelex) (prelex->src prelex) '() '())))))
+      (define (record! what src)
+        (when src
+          (source-table-set! st src what)))
+      (define (record-prelex-binding! x)
+        (hashtable-set! lexical-bindings x (make-lexical-info x)))
+      (define (record-prelex-use! x maybe-src set-field! get-field)
+        (cond
+         [(hashtable-ref lexical-bindings x #f) =>
+          (lambda (linfo)
+            (set-field! linfo (cons maybe-src (get-field linfo))))]
+         [else ($oops who "use of prelex with no binding?! ~s" x)]))
+      ;; NB: the output should be *, but nanopass won't autogenerate the pass
+      (define-pass record-source! : Lsrc (ir) -> Lsrc ()
+        (Expr : Expr (ir) -> Expr ()
+          [(case-lambda ,preinfo ,[cl] ...)
+           (record! 'case-lambda (preinfo-src preinfo))
+           ir]
+          [(call ,preinfo ,[e0] ,[e1] ...)
+           (record! 'call (preinfo-src preinfo))
+           ir]
+          [(ref ,maybe-src ,x)
+           (record-prelex-use! x maybe-src lexical-info-ref-src*-set! lexical-info-ref-src*)
+           ir]
+          [(set! ,maybe-src ,x ,[e])
+           (record-prelex-use! x maybe-src lexical-info-set-src*-set! lexical-info-set-src*)
+           ir]
+          [(letrec ([,x* ,e*] ...) ,body)
+           (for-each record-prelex-binding! x*)
+           `(letrec ([,x* ,(map Expr e*)] ...) ,(Expr body))]
+          [(letrec* ([,x* ,e*] ...) ,body)
+           (for-each record-prelex-binding! x*)
+           `(letrec* ([,x* ,(map Expr e*)] ...) ,(Expr body))])
+        (CaseLambdaClause : CaseLambdaClause (ir) -> CaseLambdaClause ()
+          [(clause (,x* ...) ,interface ,body)
+           ;; TODO we could pass in preinfo-src from lambda, but is it useful?
+           (for-each record-prelex-binding! x*)
+           (Expr body)
+           ir]))
+      (Lexpand-to-go x record-source!)
+      (values st (hashtable-values lexical-bindings))))
   )
