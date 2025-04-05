@@ -489,10 +489,19 @@
 ;; TODO do we want to try to get nesting info?
 ;; TODO some letrec* contours are from build-library-body; is there any help / harm in that?
 (define (add-contour! src type sm bound*)
-  (extend-source-map! sm source-map-contour* source-map-contour*-set!
-    (make-contour src type
-      (map (lambda (prelex) (get-or-add-lexical! sm prelex))
-        bound*))))
+  (if #f #; (null? bound*)
+      ;; TODO not sure we want to drop empty contour
+      ;;      - if we have (define (foo) (define bar ...) body)
+      ;;        we currently get an empty contour for the outer definition
+      ;;        and it binds no variables
+      ;;      - yet the letrec* for the internal definition that does bind variables
+      ;;        has no source
+      (printf "empty ~s contour at ~s\n" type src)    
+      (extend-source-map! sm source-map-contour* source-map-contour*-set!
+        (make-contour src type
+          (map (lambda (prelex) (get-or-add-lexical! sm prelex))
+            bound*))))
+  )
 
 (define (add-realm! src sm name path version export* import*)
   (extend-source-map! sm source-map-realm* source-map-realm*-set!
@@ -677,6 +686,7 @@
   (define build-clause
     (lambda (src fmls body)
       (define (return fmls iface body)
+        ;; TODO for now record lambda clause in contours; eventually we may just want the one in cprep.ss $extract-source
         (maybe-source! sm => (add-contour! src 'lambda sm fmls))
         (in-context CaseLambdaClause
           `(clause (,fmls ...) ,iface ,body)))
@@ -716,6 +726,12 @@
       (build-profile ae
         (let ([src (ae->src ae)])
           `(case-lambda ,(make-preinfo-lambda (ae->src ae) #f)
+             ;; TODO can we get more precise source for case-lambda clause?
+             ;;      - no point if we're going to punt to cprep, since CaseLambdaClause doesn't have anywhere to store it
+             ;;        unless we add a field
+             ;;          --> or we add some way to record source for different clauses in make-preinfo-lambda
+             ;;          --> rats. the preinfo-src field is inherited, so we probably don't want to change it
+             ;;      - simply passing src in here isn't ideal
              ,(build-clauses src clauses) ...)))))
 
   (define build-library-case-lambda
