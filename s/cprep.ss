@@ -373,6 +373,8 @@
         (ae->src (prelex-source prelex)))
       (define st (make-source-table)) ;; TODO still not sure what we want
       (define lexical-bindings (make-eq-hashtable))
+      (define global-bindings (make-eq-hashtable))
+
       ;; TODO figure out how to share this with syntax.ss      
       (define-record-type lexical-info
         (nongenerative #{lexical-info ble5klpzns025alnatm0ydav9-0})
@@ -381,6 +383,16 @@
          (lambda (new)
            (lambda (prelex)
              (new (prelex-name prelex) (prelex->src prelex) '() '())))))
+      ;; TODO do we care about meta-level for globals?
+      (define-record-type global-info
+        (nongenerative #{global-info ble5klpzns025alnatm0ydav9-1})
+        (fields (immutable name) (mutable ref-src*) (mutable set-src*))
+        (protocol
+         (lambda (new)
+           (lambda (name)
+             (new name '() '())))))
+
+      ;; TODO figure out how to share this with syntax.ss      
       (define (record! what src)
         (when src
           (source-table-set! st src what)))
@@ -392,14 +404,31 @@
           (lambda (linfo)
             (set-field! linfo (cons maybe-src (get-field linfo))))]
          [else ($oops who "use of prelex with no binding?! ~s" x)]))
+      (define (record-global-info! name preinfo get-field set-field!)
+        (let ([gi (get-or-add! global-bindings name make-global-info)])
+          (set-field! gi (cons (preinfo-src preinfo) (get-field gi)))))
+      (define (get-or-add! table key make)
+        (let ([cell (eq-hashtable-cell table key #f)])
+          (or (cdr cell)
+              (let ([x (make key)])
+                (set-cdr! cell x)
+                x))))
       ;; NB: the output should be *, but nanopass won't autogenerate the pass
       (define-pass record-source! : Lsrc (ir) -> Lsrc ()
         (Expr : Expr (ir) -> Expr ()
           [(case-lambda ,preinfo ,[cl] ...)
+           ;; TODO simplify record! if this is our only case
            (record! 'case-lambda (preinfo-src preinfo))
            ir]
-          [(call ,preinfo ,[e0] ,[e1] ...)
-           (record! 'call (preinfo-src preinfo))
+          [(call ,preinfo ,pr (quote ,d))
+           ;; we don't care about calls to top-level-value with env argument
+           (when (memq (primref-name pr) '($top-level-value top-level-value))
+             (record-global-info! d preinfo global-info-ref-src* global-info-ref-src*-set!))
+           ir]
+          [(call ,preinfo ,pr (quote ,d) ,[e2])
+           ;; we don't care about calls to sets-top-level-value! with env argument
+           (when (memq (primref-name pr) '($set-top-level-value! set-top-level-value!))
+             (record-global-info! d preinfo global-info-set-src* global-info-set-src*-set!))
            ir]
           [(ref ,maybe-src ,x)
            (record-prelex-use! x maybe-src lexical-info-ref-src*-set! lexical-info-ref-src*)
@@ -420,5 +449,7 @@
            (Expr body)
            ir]))
       (Lexpand-to-go x record-source!)
-      (values st (hashtable-values lexical-bindings))))
+      (values st
+        (hashtable-values lexical-bindings)
+        (hashtable-values global-bindings))))
   )
