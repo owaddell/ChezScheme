@@ -817,14 +817,11 @@
 
 (define build-primitive-reference
   (lambda (ae name)
-    (cond
-     [($suppress-primitive-inlining)
-      (maybe-source! sm => (add-global-ref! (ae->src ae) name sm))
-      (build-primcall ae 3 '$top-level-value `(quote ,name))]
-     [else
-      (let ([level (fxmax (optimize-level) 2)])
-        (maybe-source! sm => (add-prim-ref (ae->src ae) name sm level))
-        (build-profile ae (lookup-primref level name)))])))
+    (let ([level (fxmax (optimize-level) 2)])
+      (maybe-source! sm => (add-prim-ref (ae->src ae) name sm level))
+      (if ($suppress-primitive-inlining)
+          (build-primcall ae 3 '$top-level-value `(quote ,name))
+          (build-profile ae (lookup-primref level name))))))
 
 (define build-primitive-assignment
   (lambda (ae name val)
