@@ -393,6 +393,7 @@
              (new name '() '())))))
 
       ;; TODO figure out how to share this with syntax.ss      
+      ;; TODO rewrite and rename all of this
       (define (record! what src)
         (when src
           (source-table-set! st src what)))
@@ -453,5 +454,7 @@
       (Lexpand-to-go x record-source!)
       (values st
         (hashtable-values lexical-bindings)
+        ;; TODO sadly up to client to weed out global assignments that install library exports
+        ;;      (now recording the ids in the realm)
         (hashtable-values global-bindings))))
   )

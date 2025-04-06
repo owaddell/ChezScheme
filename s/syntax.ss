@@ -416,6 +416,7 @@
 ;; TODO hmm,do we want to do something with fluid-let-syntax and think about
 ;;      unifying lexical-info global-info and syntax-info into identifier-info
 ;;      with a type field (or use record inheritance for type)?
+;; TODO can we use label from id->label as hashtable key?
 (define-record-type syntax-info
   (nongenerative #{syntax-info ble5klpzns025alnatm0ydav9-3})
   (fields (immutable name) (immutable bind-src) (immutable meta-level) (mutable ref-src*))
@@ -434,15 +435,16 @@
 
 ;; TODO should probably record source for where we imported the silly thing
 (define-record-type realm
-  (nongenerative #{realm ble5klpzns025alnatm0ydav9-5})
+  (nongenerative #{realm dk0h38d9wcwydof3f2dgd7w9h-0})
   (fields
-   (immutable src) (immutable name) (immutable path) (immutable version) (immutable meta-level) (immutable export*) (immutable import*))
+   (immutable src) (immutable name) (immutable path) (immutable version) (immutable meta-level) (immutable export*) (immutable import*)
+   (immutable export-id*))
   (protocol
    (lambda (new)
-     (lambda (src name path version export* import*)
+     (lambda (src name path version export* import* export-id*)
        ;; path is () for module, non-empty for library
        ;; TODO can we get imports for modules when explicit?
-       (new src name path version (meta-level) export* import*)))))
+       (new src name path version (meta-level) export* import* export-id*)))))
 
 (define (get-or-add-source! sm key get-table make)
   (let ([cell (eq-hashtable-cell (get-table sm) key #f)])
@@ -517,9 +519,10 @@
             bound*))))
   )
 
-(define (add-realm! src sm name path version export* import*)
+(define (add-realm! src sm name path version export* import* export-id*)
   (extend-source-map! sm source-map-realm* source-map-realm*-set!
-    (make-realm src name path version (vector->immutable-vector export*) import*)))
+    ;; TODO maybe we don't want syntax objects in export* but just the annotated bit ?
+    (make-realm src name path version (vector->immutable-vector export*) import* export-id*)))
 
 (define (add-alias! sm new-id old-id)
   ;; TODO should we grab the label
@@ -1010,7 +1013,7 @@
 (define build-top-module
   (lambda (ae types vars val-exps body-exp)
     ;; TODO revert the changes here and do something more like the maybe-source! in chi-top-library where we
-    ;;      call build-library-body? (maybe this is just something that add-realm! should do?)
+    ;;      call build-library-body ? (maybe this is just something that add-realm! should do?)
     (if (internal-defines-as-letrec*)
         (let-values ([(vars val-exps)
                       (let f ([types types] [vars vars] [val-exps val-exps])
@@ -2379,7 +2382,7 @@
                                 ; must be an enclosing local-syntax binding for id
                                  (syntax-error orig "definition not permitted"))
                                (maybe-source! sm =>
-                                 (add-realm! (TODO-FIXME ae) sm (parse-module-name e) '() '() iface-vector '()))
+                                 (add-realm! (TODO-FIXME ae) sm (parse-module-name e) '() '() iface-vector '() '()))
                                (let ([iface (make-interface (wrap-marks (syntax-object-wrap id)) iface-vector)])
                                  (let ([b (make-binding '$module iface)])
                                    (extend-rho! r label b (fxlognot 0))
@@ -2974,13 +2977,11 @@
                                     (build-sequence no-source `(,@inits ,(build-void)))))))))
                         (maybe-source! sm =>
                           (add-realm! (TODO-FIXME ae) sm library-uid library-path library-version
-                            iface-vector (map libreq-uid import-req*))
-                          (for-each
-                           (lambda (label var)
-                             (when label
-                               ;; TODO record this instead on the lexical info as an alternative / export name?
-                               (add-global-set! (TODO-FIXME (prelex-source var)) label sm)))
-                           dl* dv*))
+                            iface-vector (map libreq-uid import-req*)
+                            (fold-left
+                             (lambda (exp-id* label var)
+                               (if label (cons (cons label (prelex-source var)) exp-id*) exp-id*))
+                              '() dl* dv*)))
 
                        ; must be after last reference to r
                         (for-each (kill-label! r) label*)
@@ -3195,7 +3196,9 @@
                 (chexports)
 
                 (maybe-source! sm =>
-                  (add-realm! (TODO-FIXME ae) sm (parse-module-name orig) '() '() iface-vector '()))
+                  (add-realm! (TODO-FIXME ae) sm (parse-module-name orig) '() '() iface-vector '()
+                    ;; TODO this might be wrong; can't remember how it works, maybe we set-top-level-value! here also?
+                    '()))
 
                ; must be after last reference to r
                 (for-each (kill-label! r) label*)
@@ -3597,7 +3600,9 @@
                            (syntax-error orig "definition not permitted"))
                          (record-id! defn-table id label)
                          (maybe-source! sm =>
-                           (add-realm! (TODO-FIXME ae) sm (parse-module-name e) '() '() *iface-vector '()))
+                           (add-realm! (TODO-FIXME ae) sm (parse-module-name e) '() '() *iface-vector '()
+                             ;; TODO maybe wrong, can't remember how it works
+                             '()))
                          (let ([b (make-binding '$module iface)])
                            (extend-rho! r label b (fxlognot 0))
                            (parse (cdr body)
@@ -4202,7 +4207,7 @@
                                      r #t label*)]
                                  [(exports exports-to-check iface-vector) (determine-exports 'module orig *expspec** r)])
                      (maybe-source! sm =>
-                       (add-realm! (TODO-FIXME ae) sm (parse-module-name e) '() '() iface-vector '()))
+                       (add-realm! (TODO-FIXME ae) sm (parse-module-name e) '() '() iface-vector '() '()))
                     ; valid bound ids checked already by chi-internal
                      (let ([iface (make-interface (wrap-marks (syntax-object-wrap id)) iface-vector)]
                            [vars (append *vars vars)]
