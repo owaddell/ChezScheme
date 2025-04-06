@@ -413,6 +413,9 @@
      (lambda (name)
        (new name '() '())))))
 
+;; TODO hmm,do we want to do something with fluid-let-syntax and think about
+;;      unifying lexical-info global-info and syntax-info into identifier-info
+;;      with a type field (or use record inheritance for type)?
 (define-record-type syntax-info
   (nongenerative #{syntax-info ble5klpzns025alnatm0ydav9-3})
   (fields (immutable name) (immutable bind-src) (immutable meta-level) (mutable ref-src*))
@@ -483,6 +486,8 @@
   ;;        - for example, if we (include "foo.ss") in two parts of the code with optimize-level set both ways
   ;;          - maybe make the prim-info mutable?
   ;;          - or do we stuff the primref itself in a list w/ equivalent of (cons pr (remq pr ls))
+  ;; TODO maybe one source-table for o=2 and separate one for o=3 just mapping source -> primref-name
+  ;; TODO I had some rationale for not using a source-table at one point. What was it?
   (let ([info (get-or-add-source! sm name source-map-primitive make-prim-info)])
     ;; 2 or 3 given base-lang.ss lookup-primref
     (case level
