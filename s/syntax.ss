@@ -10294,17 +10294,19 @@
             [(immutable field-name)
              (identifier? #'field-name)
              (make-field-desc #'field-name i x
-               (construct-name name name "-" #'field-name)
+               ;; TODO consider doing this in construct-name instead; maybe it won't be confusing?
+               (#%$replace-source #'field-name (construct-name name name "-" #'field-name))
                #f)]
             [(mutable field-name)
              (identifier? #'field-name)
              (make-field-desc #'field-name i x
-               (construct-name name name "-" #'field-name)
-               (construct-name name name "-" #'field-name "-set!"))]
+               (#%$replace-source #'field-name (construct-name name name "-" #'field-name))
+               (#%$replace-source #'field-name (construct-name name name "-" #'field-name "-set!")))]
             [field-name
              (identifier? #'field-name)
              (make-field-desc #'field-name i #'(immutable field-name)
-               (construct-name name name "-" #'field-name)
+               (#%$replace-source #'field-name
+                 (construct-name name name "-" #'field-name))
                #f)]
             [_ (syntax-error x "invalid field specifier")]))
         (define-syntactic-monad Mclause %fields %parent %protocol
@@ -10510,8 +10512,8 @@
         [(_ name clause ...)
          (identifier? #'name)
          (do-define-record-type x #'name
-           (construct-name #'name "make-" #'name)
-           (construct-name #'name #'name "?")
+           (#%$replace-source #'name (construct-name #'name "make-" #'name))
+           (#%$replace-source #'name (construct-name #'name #'name "?"))
            #'(clause ...))]
         [(_ (name make-name pred-name) clause ...)
          (and (identifier? #'name)
