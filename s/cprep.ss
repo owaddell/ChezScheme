@@ -402,6 +402,8 @@
         (cond
          [(hashtable-ref lexical-bindings x #f) =>
           (lambda (linfo)
+            ;; TODO hmm, maybe we don't want to just cons these on since there are often many duplicate sources
+            ;;      e.g., for macro helpers
             (set-field! linfo (cons maybe-src (get-field linfo))))]
          [else ($oops who "use of prelex with no binding?! ~s" x)]))
       (define (record-global-info! name preinfo get-field set-field!)
