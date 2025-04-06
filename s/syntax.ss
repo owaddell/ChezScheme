@@ -7148,6 +7148,7 @@
                             ctem rtem
                             (env-top-ribcage env)
                             outfn)))])
+               ;; TODO what if we commonize source records in the output?
                (cond
                 [($report-source-info) =>
                  (lambda (report)
