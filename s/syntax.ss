@@ -7148,19 +7148,19 @@
                             ctem rtem
                             (env-top-ribcage env)
                             outfn)))])
-                (cond
-                 [($report-source-info) =>
-                  (lambda (report)
-                    (when sm
-                      (report outfn
-                       (hashtable-values (source-map-lexical sm))
-                       (hashtable-values (source-map-global sm))
-                       (hashtable-values (source-map-primitive sm))
-                       (source-map-contour* sm)
-                       (source-map-realm* sm)
-                       (source-map-imports sm)
-                       (hashtable-values (source-map-syntax sm))
-                       (source-map-alias* sm))))])
+               (cond
+                [($report-source-info) =>
+                 (lambda (report)
+                   (when sm
+                     (report outfn
+                      (hashtable-values (source-map-lexical sm))
+                      (hashtable-values (source-map-global sm))
+                      (hashtable-values (source-map-primitive sm))
+                      (source-map-contour* sm)
+                      (source-map-realm* sm)
+                      (source-map-imports sm)
+                      (hashtable-values (source-map-syntax sm))
+                      (source-map-alias* sm))))])
                (if records? x ($uncprep x)))))))))
 
 (set-who! $require-include
